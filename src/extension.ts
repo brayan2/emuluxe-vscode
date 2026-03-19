@@ -57,15 +57,10 @@ export function activate(context: vscode.ExtensionContext) {
                     headers: { 'Authorization': `Bearer ${auth.token}` }
                 });
 
-                const { sessionId, userAgent, deviceName } = res.data;
-                // Build the proxy URL directly — this bypasses the embed page
-                // and avoids the frame-ancestors CSP issue entirely.
-                const encodedUrl = encodeURIComponent(url);
-                const encodedUA = encodeURIComponent(userAgent || 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15');
-                const proxyUrl = `${auth.apiUrl}/api/proxy?url=${encodedUrl}&ua=${encodedUA}&theme=dark&instanceId=${sessionId}`;
+                const { embedUrl, sessionId } = res.data;
 
                 if (currentPanel) {
-                    currentPanel.webview.html = getWebviewContent(proxyUrl, auth.apiUrl, url, deviceName || deviceId);
+                    currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
                     currentPanel.reveal(vscode.ViewColumn.Two);
                 } else {
                     currentPanel = vscode.window.createWebviewPanel(
@@ -79,7 +74,7 @@ export function activate(context: vscode.ExtensionContext) {
                     );
 
                     currentPanel.iconPath = vscode.Uri.parse(`${auth.apiUrl}/favicon.ico`);
-                    currentPanel.webview.html = getWebviewContent(proxyUrl, auth.apiUrl, url, deviceName || deviceId);
+                    currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
 
                     currentPanel.onDidDispose(() => {
                         currentPanel = undefined;
@@ -213,7 +208,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(startCommand, stopCommand, loginCommand, deviceCommand, rotateCommand, screenshotCommand, inspectCommand);
 }
 
-function getWebviewContent(proxyUrl: string, apiUrl: string, targetUrl: string, deviceLabel: string) {
+function getWebviewContent(embedUrl: string, apiUrl: string) {
     return `<!DOCTYPE html>
 <!DOCTYPE html>
 <html lang="en">
@@ -322,11 +317,11 @@ function getWebviewContent(proxyUrl: string, apiUrl: string, targetUrl: string, 
     <!-- Loading progress bar -->
     <div id="loading-bar" class="active"></div>
 
-    <!-- Simulation frame: directly iframes the proxy URL, bypassing the embed page -->
+    <!-- Simulation frame -->
     <div id="sim-wrap">
         <iframe
             id="sim-frame"
-            src="${proxyUrl}"
+            src="${embedUrl}"
             allow="geolocation; microphone; camera; midi; encrypted-media; clipboard-read; clipboard-write; display-capture"
             name="emx-ide-shell"
         ></iframe>
@@ -352,14 +347,12 @@ function getWebviewContent(proxyUrl: string, apiUrl: string, targetUrl: string, 
         const urlInput = document.getElementById('url-input');
         const loadingBar = document.getElementById('loading-bar');
 
-        // Populate URL bar with the real target URL
-        urlInput.value = '${targetUrl}';
-
-        // Store the base proxy URL to rebuild when navigating
-        const baseProxyUrl = '${proxyUrl}';
-        const apiBase = baseProxyUrl.split('/api/proxy')[0];
-        const currentUA = encodeURIComponent(new URL(baseProxyUrl).searchParams.get('ua') || '');
-        const currentInstanceId = new URL(baseProxyUrl).searchParams.get('instanceId') || '';
+        // Populate URL bar from the embed URL param
+        try {
+            const embedSrc = new URL(frame.src);
+            const userUrl = embedSrc.searchParams.get('url');
+            if (userUrl) urlInput.value = decodeURIComponent(userUrl);
+        } catch(e) {}
 
         // Loading bar control
         frame.addEventListener('load', () => {
@@ -374,9 +367,11 @@ function getWebviewContent(proxyUrl: string, apiUrl: string, targetUrl: string, 
                     if (newUrl.startsWith('localhost') || newUrl.startsWith('127.0.0.1')) newUrl = 'http://' + newUrl;
                     else newUrl = 'https://' + newUrl;
                 }
-                // Navigate by reloading the proxy with the new URL directly
-                const newProxyUrl = apiBase + '/api/proxy?url=' + encodeURIComponent(newUrl) + '&ua=' + currentUA + '&theme=dark&instanceId=' + currentInstanceId;
-                frame.src = newProxyUrl;
+                // Post to embed page so it re-routes through the proxy
+                frame.contentWindow && frame.contentWindow.postMessage({
+                    type: 'EMX_IDE_NAVIGATE',
+                    url: newUrl
+                }, '*');
                 loadingBar.classList.add('active');
             }
         });
@@ -390,7 +385,7 @@ function getWebviewContent(proxyUrl: string, apiUrl: string, targetUrl: string, 
         });
         document.getElementById('btn-refresh').addEventListener('click', () => {
             loadingBar.classList.add('active');
-            frame.src = frame.src; // reload the proxy iframe directly
+            frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'refresh' }, '*');
         });
         document.getElementById('btn-rotate').addEventListener('click', () => {
             frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'rotate' }, '*');

@@ -90,6 +90,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     interface EmxDevice extends vscode.QuickPickItem {
         id: string;
+        locked: boolean;
     }
 
     const getDevices = async (auth: { token: string, apiUrl: string }): Promise<EmxDevice[]> => {
@@ -103,7 +104,8 @@ export function activate(context: vscode.ExtensionContext) {
                 label: d.name,
                 description: d.os || d.brand,
                 id: d.id,
-                detail: !d.isFree ? '★ Premium' : undefined
+                detail: d.isLocked ? `★ Requires ${d.planRequired} Plan` : undefined,
+                locked: d.isLocked
             }));
         } catch (err: any) {
             vscode.window.showErrorMessage(`Emuluxe: Failed to fetch devices. ${err.message}`);
@@ -124,6 +126,17 @@ export function activate(context: vscode.ExtensionContext) {
             matchOnDetail: true
         });
         if (!selectedDevice) return;
+
+        if (selectedDevice.locked) {
+            const action = await vscode.window.showErrorMessage(
+                `Emuluxe: ${selectedDevice.label} requires a Pro plan.`,
+                'Upgrade'
+            );
+            if (action === 'Upgrade') {
+                vscode.env.openExternal(vscode.Uri.parse(`${auth.apiUrl}/platform/billing`));
+            }
+            return;
+        }
 
         const url = await vscode.window.showInputBox({ 
             prompt: 'Enter URL to simulate', 
@@ -148,6 +161,17 @@ export function activate(context: vscode.ExtensionContext) {
             matchOnDetail: true
         });
         if (!selectedDevice) return;
+
+        if (selectedDevice.locked) {
+            const action = await vscode.window.showErrorMessage(
+                `Emuluxe: ${selectedDevice.label} requires a Pro plan.`,
+                'Upgrade'
+            );
+            if (action === 'Upgrade') {
+                vscode.env.openExternal(vscode.Uri.parse(`${auth.apiUrl}/platform/billing`));
+            }
+            return;
+        }
         
         if (currentPanel) {
             await startSession(selectedDevice.id, currentUrl);
@@ -223,6 +247,10 @@ function getWebviewContent(url: string, apiUrl: string) {
         <iframe id="sim-frame" src="${url}" allow="geolocation; microphone; camera; midi; encrypted-media; clipboard-read; clipboard-write; display-capture"></iframe>
         
         <script>
+            // Tell the platform we are inside the IDE shell
+            // This ensures the platform bypasses its proxy for locally reachable URLs (like localhost:3000)
+            window.__emuluxe_installed = true;
+
             // Relay messages from VS Code extension to the iframe
             window.addEventListener('message', event => {
                 const iframe = document.getElementById('sim-frame');

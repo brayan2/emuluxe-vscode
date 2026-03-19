@@ -28,6 +28,49 @@
         "command": "emuluxe.stop",
         "title": "Emuluxe: Stop Simulation",
         "category": "Emuluxe"
+      },
+      {
+        "command": "emuluxe.device",
+        "title": "Emuluxe: Change Device",
+        "category": "Emuluxe"
+      },
+      {
+        "command": "emuluxe.rotate",
+        "title": "Emuluxe: Rotate Device",
+        "category": "Emuluxe"
+      },
+      {
+        "command": "emuluxe.screenshot",
+        "title": "Emuluxe: Take Screenshot",
+        "category": "Emuluxe"
+      },
+      {
+        "command": "emuluxe.inspect",
+        "title": "Emuluxe: Open Inspector",
+        "category": "Emuluxe"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "emuluxe.rotate",
+        "key": "cmd+r",
+        "mac": "cmd+r",
+        "win": "ctrl+r",
+        "when": "activeWebviewPanelId == 'emuluxeSim'"
+      },
+      {
+        "command": "emuluxe.screenshot",
+        "key": "cmd+s",
+        "mac": "cmd+s",
+        "win": "ctrl+s",
+        "when": "activeWebviewPanelId == 'emuluxeSim'"
+      },
+      {
+        "command": "emuluxe.inspect",
+        "key": "cmd+i",
+        "mac": "cmd+i",
+        "win": "ctrl+i",
+        "when": "activeWebviewPanelId == 'emuluxeSim'"
       }
     ],
     "configuration": {

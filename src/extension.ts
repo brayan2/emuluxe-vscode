@@ -1,15 +1,22 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
 
+const DEVICES = [
+    { label: 'iPhone 15 Pro Max', description: 'iOS 17', id: 'iphone-15-pro-max' },
+    { label: 'iPhone 15', description: 'iOS 17', id: 'iphone-15' },
+    { label: 'iPhone 14 Pro', description: 'iOS 17', id: 'iphone-14-pro' },
+    { label: 'Pixel 8 Pro', description: 'Android 14', id: 'pixel-8-pro' },
+    { label: 'Galaxy S24 Ultra', description: 'Android 14', id: 'samsung-s24-ultra' },
+    { label: 'iPad Pro 12.9"', description: 'iPadOS 17', id: 'ipad-pro-12-m2-gen6' }
+];
+
+let currentPanel: vscode.WebviewPanel | undefined = undefined;
+let currentUrl: string = 'http://localhost:3000';
+let currentDevice: string = 'iphone-15-pro-max';
+
 export function activate(context: vscode.ExtensionContext) {
-    let currentPanel: vscode.WebviewPanel | undefined = undefined;
 
-    let startCommand = vscode.commands.registerCommand('emuluxe.start', async () => {
-        const url = await vscode.window.showInputBox({ 
-            prompt: 'Enter URL to simulate', 
-            placeHolder: 'http://localhost:3000' 
-        }) || 'http://localhost:3000';
-
+    const checkToken = async (): Promise<{ token: string, apiUrl: string } | null> => {
         const config = vscode.workspace.getConfiguration('emuluxe');
         const token = config.get<string>('token');
         const apiUrl = config.get<string>('apiUrl') || 'https://app.emuluxe.com';
@@ -24,37 +31,40 @@ export function activate(context: vscode.ExtensionContext) {
             } else if (action === 'Get Token') {
                 vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/platform/settings/integrations`));
             }
-            return;
+            return null;
         }
+        return { token, apiUrl };
+    };
+
+    const startSession = async (deviceId: string, url: string) => {
+        const auth = await checkToken();
+        if (!auth) return;
+
+        currentUrl = url;
+        currentDevice = deviceId;
 
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Starting Emuluxe Session...",
+            title: `Starting ${deviceId} Simulation...`,
             cancellable: false
         }, async (progress) => {
             try {
-                // Determine if we need to tunnel or if the URL is public
-                // For simplicity in the extension, we assume the platform handles the URL resolution.
-                // However, the Platform can't reach user's localhost unless it's tunneled.
-                // In a real extension, we might bundle the tunnel logic or ask the user to run the CLI.
-                // For this MVP, we'll assume the URL is either public or reachability is handled.
-                
-                const res = await axios.post(`${apiUrl}/api/cli/session`, {
-                    device: 'iphone-15-pro-max',
+                const res = await axios.post(`${auth.apiUrl}/api/cli/session`, {
+                    device: deviceId,
                     url: url
                 }, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${auth.token}` }
                 });
 
                 const { embedUrl, sessionId } = res.data;
 
                 if (currentPanel) {
+                    currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
                     currentPanel.reveal(vscode.ViewColumn.Two);
-                    currentPanel.webview.html = getWebviewContent(embedUrl);
                 } else {
                     currentPanel = vscode.window.createWebviewPanel(
                         'emuluxeSim',
-                        'Emuluxe Simulation',
+                        'Emuluxe',
                         vscode.ViewColumn.Two,
                         { 
                             enableScripts: true, 
@@ -62,14 +72,13 @@ export function activate(context: vscode.ExtensionContext) {
                         }
                     );
 
-                    currentPanel.iconPath = vscode.Uri.parse(`${apiUrl}/favicon.ico`);
-                    currentPanel.webview.html = getWebviewContent(embedUrl);
+                    currentPanel.iconPath = vscode.Uri.parse(`${auth.apiUrl}/favicon.ico`);
+                    currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
                     
                     currentPanel.onDidDispose(() => {
                         currentPanel = undefined;
-                        // Optional: End session API call
-                        axios.delete(`${apiUrl}/api/cli/session/${sessionId}`, {
-                            headers: { 'Authorization': `Bearer ${token}` }
+                        axios.delete(`${auth.apiUrl}/api/cli/session/${sessionId}`, {
+                            headers: { 'Authorization': `Bearer ${auth.token}` }
                         }).catch(() => {});
                     }, null, context.subscriptions);
                 }
@@ -77,6 +86,36 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage(`Emuluxe Error: ${err.response?.data?.error || err.message}`);
             }
         });
+    };
+
+    let startCommand = vscode.commands.registerCommand('emuluxe.start', async () => {
+        const selectedDevice = await vscode.window.showQuickPick(DEVICES, {
+            placeHolder: 'Select a device to simulate'
+        });
+        if (!selectedDevice) return;
+
+        const url = await vscode.window.showInputBox({ 
+            prompt: 'Enter URL to simulate', 
+            placeHolder: 'http://localhost:3000',
+            value: currentUrl
+        });
+        if (!url) return;
+
+        await startSession(selectedDevice.id, url);
+    });
+
+    let deviceCommand = vscode.commands.registerCommand('emuluxe.device', async () => {
+        const selectedDevice = await vscode.window.showQuickPick(DEVICES, {
+            placeHolder: 'Select a new device'
+        });
+        if (!selectedDevice) return;
+        
+        if (currentPanel) {
+            // Restart session with new device but same URL
+            await startSession(selectedDevice.id, currentUrl);
+        } else {
+            vscode.window.showInformationMessage('No active Emuluxe simulation. Run "Emuluxe: Start Simulation" first.');
+        }
     });
 
     let stopCommand = vscode.commands.registerCommand('emuluxe.stop', () => {
@@ -91,10 +130,22 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/platform/settings/integrations`));
     });
 
-    context.subscriptions.push(startCommand, stopCommand, loginCommand);
+    let rotateCommand = vscode.commands.registerCommand('emuluxe.rotate', () => {
+        if (currentPanel) currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'rotate' });
+    });
+
+    let screenshotCommand = vscode.commands.registerCommand('emuluxe.screenshot', () => {
+        if (currentPanel) currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'screenshot' });
+    });
+
+    let inspectCommand = vscode.commands.registerCommand('emuluxe.inspect', () => {
+        if (currentPanel) currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'inspect' });
+    });
+
+    context.subscriptions.push(startCommand, stopCommand, loginCommand, deviceCommand, rotateCommand, screenshotCommand, inspectCommand);
 }
 
-function getWebviewContent(url: string) {
+function getWebviewContent(url: string, apiUrl: string) {
     return `<!DOCTYPE html>
     <html lang="en">
     <head>
@@ -102,18 +153,47 @@ function getWebviewContent(url: string) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Emuluxe</title>
         <style>
-            body, html { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; background: #000; }
-            iframe { border: none; width: 100%; height: 100%; }
-            .loader { 
-                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                color: rgba(255,255,255,0.3); font-family: sans-serif; font-size: 10px;
-                text-transform: uppercase; letter-spacing: 2px;
+            body, html { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; background: #000; display: flex; align-items: center; justify-content: center; }
+            iframe { border: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 10; }
+            
+            .loader-container {
+                display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+                z-index: 1; animation: pulse 2s infinite ease-in-out;
             }
+            .brand-logo { width: 64px; height: 64px; }
+            .brand-text { 
+                color: rgba(255,255,255,0.7); font-family: system-ui, -apple-system, sans-serif; font-size: 11px;
+                text-transform: uppercase; letter-spacing: 4px; font-weight: 800;
+            }
+            @keyframes pulse { 0% { opacity: 0.6; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1); } 100% { opacity: 0.6; transform: scale(0.98); } }
         </style>
     </head>
     <body>
-        <div class="loader">Initialising Emuluxe Shell...</div>
-        <iframe src="${url}"></iframe>
+        <div class="loader-container">
+            <svg class="brand-logo" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="emxAccent" x1="0" y1="0" x2="68" y2="68" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stop-color="#0A84FF"></stop>
+                        <stop offset="100%" stop-color="#00C2FF"></stop>
+                    </linearGradient>
+                </defs>
+                <path d="M 23,12 L 45,12 A 5,5 0 0 1 50,17 L 50,51 A 5,5 0 0 1 45,56 L 23,56 A 5,5 0 0 1 18,51 L 18,17 A 5,5 0 0 1 23,12 Z" fill="none" stroke="url(#emxAccent)" stroke-width="2.5" stroke-linejoin="round"></path>
+                <line x1="34" y1="23" x2="34" y2="52" stroke="url(#emxAccent)" stroke-width="2.5" stroke-linecap="butt"></line>
+            </svg>
+            <div class="brand-text">Initialising Engine</div>
+        </div>
+        <iframe id="sim-frame" src="${url}" allow="geolocation; microphone; camera; midi; encrypted-media; clipboard-read; clipboard-write; display-capture"></iframe>
+        
+        <script>
+            // Relay messages from VS Code extension to the iframe
+            window.addEventListener('message', event => {
+                const iframe = document.getElementById('sim-frame');
+                if (iframe && iframe.contentWindow) {
+                    // Forward message to the platform iframe
+                    iframe.contentWindow.postMessage(event.data, '*');
+                }
+            });
+        </script>
     </body>
     </html>`;
 }

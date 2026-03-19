@@ -51,7 +51,8 @@ export function activate(context: vscode.ExtensionContext) {
             try {
                 const res = await axios.post(`${auth.apiUrl}/api/cli/session`, {
                     device: deviceId,
-                    url: url
+                    url: url,
+                    source: 'vscode'
                 }, {
                     headers: { 'Authorization': `Bearer ${auth.token}` }
                 });

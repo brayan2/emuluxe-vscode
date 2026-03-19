@@ -12,7 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
     // First time setup walkthrough trigger
     const isFirstRun = context.globalState.get('emuluxe.hasRunWalkthrough', false) === false;
     if (isFirstRun) {
-        vscode.commands.executeCommand('walkthroughs.select', 'emuluxe.emuluxe-vscode#emuluxe.setup');
+        vscode.commands.executeCommand('walkthroughs.select', 'BrigxelSolutions.emuluxe-vscode#emuluxe.setup');
         context.globalState.update('emuluxe.hasRunWalkthrough', true);
     }
 
@@ -266,7 +266,6 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         /* ── Simulation viewport ── */
         #sim-wrap {
             flex: 1; position: relative; overflow: hidden;
-            border: 4px solid magenta; /* DIAGNOSTIC */
         }
         #sim-frame {
             position: absolute; inset: 0; width: 100%; height: 100%;

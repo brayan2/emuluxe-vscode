@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.0.10] - 2026-03-20
+
+### Fixed
+- **URL Bar**: Smart protocol handling for URL bar (automatically prefixing https/http).
+- **UI Styling**: Neutral background for webview to prevent white flashes.
+- **Diagnostics**: Improved state reporting for remote simulation contexts.
+
+## [1.0.9] - 2026-03-19
+- **Connectivity**: Improved proxy path resolution in webview.
+- **Protocol**: Smart protocol handling for URL bar.
+
+## [1.0.8] - 2026-03-18
+- **Telemetry**: Pass source=vscode and force proxy path in webview.
+
+## [1.0.7] - 2026-03-17
+- **UI**: Browser-chrome UI shell, URL bar navigation.
+
+## [1.0.6] - 2026-03-16
+- **Simulation**: IDE-specific simulation fixes and plan-based device locking.
+
 All notable changes to the Emuluxe VS Code extension will be documented in this file.
 
 ## [1.0.0] - 2026-03-19

@@ -2,8 +2,8 @@
   "name": "emuluxe-vscode",
   "displayName": "Emuluxe: Mobile Simulation",
   "description": "Powerful mobile device simulation directly in VS Code and Cursor.",
-  "version": "1.0.9",
-  "publisher": "emuluxe",
+  "version": "1.0.10",
+  "publisher": "BrigxelSolutions",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",

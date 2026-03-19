@@ -361,7 +361,10 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         urlInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 let newUrl = urlInput.value.trim();
-                if (!newUrl.startsWith('http')) newUrl = 'https://' + newUrl;
+                if (!newUrl.startsWith('http')) {
+                    if (newUrl.startsWith('localhost') || newUrl.startsWith('127.0.0.1')) newUrl = 'http://' + newUrl;
+                    else newUrl = 'https://' + newUrl;
+                }
                 // Post to embed page so it re-routes through the proxy
                 frame.contentWindow && frame.contentWindow.postMessage({
                     type: 'EMX_IDE_NAVIGATE',

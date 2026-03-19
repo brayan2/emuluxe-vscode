@@ -4,7 +4,7 @@
   "description": "Powerful mobile device simulation directly in VS Code and Cursor.",
   "version": "1.0.0",
   "publisher": "emuluxe",
-  "icon": "images/icon.svg",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/brayan2/emuluxe-vscode.git"

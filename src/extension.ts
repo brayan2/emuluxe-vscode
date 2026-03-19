@@ -215,6 +215,7 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${apiUrl} https: data:; script-src 'unsafe-inline' ${apiUrl} http://localhost:3000; style-src 'unsafe-inline' ${apiUrl} http://localhost:3000; frame-src ${apiUrl} http://localhost:3000 https:; connect-src ${apiUrl} http://localhost:3000; font-src ${apiUrl} http://localhost:3000;">
     <title>Emuluxe Simulation</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }

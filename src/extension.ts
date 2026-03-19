@@ -1,14 +1,7 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
 
-const DEVICES = [
-    { label: 'iPhone 15 Pro Max', description: 'iOS 17', id: 'iphone-15-pro-max' },
-    { label: 'iPhone 15', description: 'iOS 17', id: 'iphone-15' },
-    { label: 'iPhone 14 Pro', description: 'iOS 17', id: 'iphone-14-pro' },
-    { label: 'Pixel 8 Pro', description: 'Android 14', id: 'pixel-8-pro' },
-    { label: 'Galaxy S24 Ultra', description: 'Android 14', id: 'samsung-s24-ultra' },
-    { label: 'iPad Pro 12.9"', description: 'iPadOS 17', id: 'ipad-pro-12-m2-gen6' }
-];
+// Removed hardcoded DEVICES
 
 let currentPanel: vscode.WebviewPanel | undefined = undefined;
 let currentUrl: string = 'http://localhost:3000';
@@ -95,9 +88,41 @@ export function activate(context: vscode.ExtensionContext) {
         });
     };
 
+    interface EmxDevice extends vscode.QuickPickItem {
+        id: string;
+    }
+
+    const getDevices = async (auth: { token: string, apiUrl: string }): Promise<EmxDevice[]> => {
+        try {
+            const res = await axios.get(`${auth.apiUrl}/api/cli/devices`, {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            const devices = res.data;
+            const availableDevices = devices.filter((d: any) => d.available);
+            
+            return availableDevices.map((d: any) => ({
+                label: d.name,
+                description: d.group || d.brand,
+                id: d.id,
+                detail: d.isPremium ? '★ Premium' : undefined
+            }));
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Emuluxe: Failed to fetch devices. ${err.message}`);
+            return [];
+        }
+    };
+
     let startCommand = vscode.commands.registerCommand('emuluxe.start', async () => {
-        const selectedDevice = await vscode.window.showQuickPick(DEVICES, {
-            placeHolder: 'Select a device to simulate'
+        const auth = await checkToken();
+        if (!auth) return;
+
+        const devicesList = await getDevices(auth);
+        if (devicesList.length === 0) return;
+
+        const selectedDevice = await vscode.window.showQuickPick(devicesList, {
+            placeHolder: 'Select a device to simulate',
+            matchOnDescription: true,
+            matchOnDetail: true
         });
         if (!selectedDevice) return;
 
@@ -112,13 +137,20 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     let deviceCommand = vscode.commands.registerCommand('emuluxe.device', async () => {
-        const selectedDevice = await vscode.window.showQuickPick(DEVICES, {
-            placeHolder: 'Select a new device'
+        const auth = await checkToken();
+        if (!auth) return;
+
+        const devicesList = await getDevices(auth);
+        if (devicesList.length === 0) return;
+
+        const selectedDevice = await vscode.window.showQuickPick(devicesList, {
+            placeHolder: 'Select a new device',
+            matchOnDescription: true,
+            matchOnDetail: true
         });
         if (!selectedDevice) return;
         
         if (currentPanel) {
-            // Restart session with new device but same URL
             await startSession(selectedDevice.id, currentUrl);
         } else {
             vscode.window.showInformationMessage('No active Emuluxe simulation. Run "Emuluxe: Start Simulation" first.');

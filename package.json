@@ -35,7 +35,7 @@
       "properties": {
         "emuluxe.apiUrl": {
           "type": "string",
-          "default": "https://emuluxe.com",
+          "default": "https://app.emuluxe.com",
           "description": "Emuluxe API URL"
         },
         "emuluxe.token": {

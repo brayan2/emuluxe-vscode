@@ -12,7 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const config = vscode.workspace.getConfiguration('emuluxe');
         const token = config.get<string>('token');
-        const apiUrl = config.get<string>('apiUrl') || 'https://emuluxe.com';
+        const apiUrl = config.get<string>('apiUrl') || 'https://app.emuluxe.com';
 
         if (!token) {
             const action = await vscode.window.showErrorMessage(
@@ -87,7 +87,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     let loginCommand = vscode.commands.registerCommand('emuluxe.login', () => {
         const config = vscode.workspace.getConfiguration('emuluxe');
-        const apiUrl = config.get<string>('apiUrl') || 'https://emuluxe.com';
+        const apiUrl = config.get<string>('apiUrl') || 'https://app.emuluxe.com';
         vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/platform/settings/integrations`));
     });
 

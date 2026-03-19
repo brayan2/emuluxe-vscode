@@ -16,6 +16,13 @@ let currentDevice: string = 'iphone-15-pro-max';
 
 export function activate(context: vscode.ExtensionContext) {
 
+    // First time setup walkthrough trigger
+    const isFirstRun = context.globalState.get('emuluxe.hasRunWalkthrough', false) === false;
+    if (isFirstRun) {
+        vscode.commands.executeCommand('walkthroughs.select', 'emuluxe.emuluxe-vscode#emuluxe.setup');
+        context.globalState.update('emuluxe.hasRunWalkthrough', true);
+    }
+
     const checkToken = async (): Promise<{ token: string, apiUrl: string } | null> => {
         const config = vscode.workspace.getConfiguration('emuluxe');
         const token = config.get<string>('token');

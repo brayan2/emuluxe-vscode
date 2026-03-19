@@ -18,6 +18,31 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "walkthroughs": [
+      {
+        "id": "emuluxe.setup",
+        "title": "Welcome to Emuluxe",
+        "description": "Get started with the Emuluxe visual simulator.",
+        "steps": [
+          {
+            "id": "login",
+            "title": "Connect Your Emuluxe Account",
+            "description": "Securely pair your CLI Token with your IDE.\n[Login to Emuluxe](command:emuluxe.login)",
+            "media": {
+              "markdown": "walkthrough/login.md"
+            }
+          },
+          {
+            "id": "start",
+            "title": "Start Simulating",
+            "description": "Run the command from your Command Palette and pick an HD device.\n[Start Simulation](command:emuluxe.start)",
+            "media": {
+              "markdown": "walkthrough/start.md"
+            }
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "emuluxe.start",
@@ -96,6 +121,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "prepackage": "echo '# Changelog\\n\\n' > CHANGELOG.md && git log --pretty=format:'- %s (%ad)' --date=short -n 25 >> CHANGELOG.md || true",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",

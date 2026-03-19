@@ -97,14 +97,13 @@ export function activate(context: vscode.ExtensionContext) {
             const res = await axios.get(`${auth.apiUrl}/api/cli/devices`, {
                 headers: { 'Authorization': `Bearer ${auth.token}` }
             });
-            const devices = res.data;
-            const availableDevices = devices.filter((d: any) => d.available);
+            const devicesArray = res.data?.devices || [];
             
-            return availableDevices.map((d: any) => ({
+            return devicesArray.map((d: any) => ({
                 label: d.name,
-                description: d.group || d.brand,
+                description: d.os || d.brand,
                 id: d.id,
-                detail: d.isPremium ? '★ Premium' : undefined
+                detail: !d.isFree ? '★ Premium' : undefined
             }));
         } catch (err: any) {
             vscode.window.showErrorMessage(`Emuluxe: Failed to fetch devices. ${err.message}`);

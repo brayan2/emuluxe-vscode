@@ -371,7 +371,7 @@ function activate(context) {
     context.subscriptions.push(startCommand, stopCommand, loginCommand, deviceCommand, rotateCommand, screenshotCommand, inspectCommand);
 }
 function getWebviewContent(embedUrl, apiUrl) {
-    const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode';
+    const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode&v=' + Date.now();
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

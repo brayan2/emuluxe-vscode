@@ -386,7 +386,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function getWebviewContent(embedUrl: string, apiUrl: string) {
-    const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode';
+    const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode&v=' + Date.now();
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

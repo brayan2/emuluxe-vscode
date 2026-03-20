@@ -6,15 +6,17 @@ import axios from 'axios';
 let currentPanel: vscode.WebviewPanel | undefined = undefined;
 let currentUrl: string = 'http://localhost:3000';
 let currentDevice: string = 'iphone-15-pro-max';
+let statusBarItem: vscode.StatusBarItem;
+
+interface PlanInfo {
+    plan: string;
+    sessionsUsedThisMonth: number;
+    email: string;
+}
+
+let cachedPlan: PlanInfo | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
-
-    // First time setup walkthrough trigger
-    const isFirstRun = context.globalState.get('emuluxe.hasRunWalkthrough', false) === false;
-    if (isFirstRun) {
-        vscode.commands.executeCommand('walkthroughs.select', 'BrigxelSolutions.emuluxe-vscode#emuluxe.setup');
-        context.globalState.update('emuluxe.hasRunWalkthrough', true);
-    }
 
     const checkToken = async (): Promise<{ token: string, apiUrl: string } | null> => {
         const config = vscode.workspace.getConfiguration('emuluxe');
@@ -35,6 +37,55 @@ export function activate(context: vscode.ExtensionContext) {
         }
         return { token, apiUrl };
     };
+
+    const getPlanInfo = async (auth: { token: string, apiUrl: string }): Promise<PlanInfo | null> => {
+        try {
+            const res = await axios.get(`${auth.apiUrl}/api/cli/me`, {
+                headers: { 'Authorization': `Bearer ${auth.token}` }
+            });
+            cachedPlan = res.data;
+            return cachedPlan;
+        } catch (err) {
+            console.error('[Emuluxe] Failed to fetch plan info:', err);
+            return null;
+        }
+    };
+
+    // First time setup walkthrough trigger
+    const isFirstRun = context.globalState.get('emuluxe.hasRunWalkthrough', false) === false;
+    if (isFirstRun) {
+        vscode.commands.executeCommand('walkthroughs.select', 'BrigxelSolutions.emuluxe-vscode#emuluxe.setup');
+        context.globalState.update('emuluxe.hasRunWalkthrough', true);
+    }
+
+    // Proactively fetch plan info
+    checkToken().then(auth => {
+        if (auth) {
+            getPlanInfo(auth).then(plan => {
+                if (plan) updateStatusBar(plan);
+            });
+        }
+    });
+
+    const updateStatusBar = (plan: PlanInfo) => {
+        if (!statusBarItem) {
+            statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+            context.subscriptions.push(statusBarItem);
+        }
+        statusBarItem.text = `$(account) Emuluxe: ${plan.plan.charAt(0).toUpperCase() + plan.plan.slice(1)}`;
+        statusBarItem.tooltip = `Account: ${plan.email}\nSessions used: ${plan.sessionsUsedThisMonth}\nClick for billing`;
+        statusBarItem.command = 'emuluxe.billing';
+        statusBarItem.show();
+    };
+
+    let billingCommand = vscode.commands.registerCommand('emuluxe.billing', async () => {
+        const auth = await checkToken();
+        if (auth) {
+            vscode.env.openExternal(vscode.Uri.parse(`${auth.apiUrl}/platform/billing`));
+        }
+    });
+
+    context.subscriptions.push(billingCommand);
 
     const startSession = async (deviceId: string, url: string) => {
         const auth = await checkToken();
@@ -84,7 +135,21 @@ export function activate(context: vscode.ExtensionContext) {
                     }, null, context.subscriptions);
                 }
             } catch (err: any) {
-                vscode.window.showErrorMessage(`Emuluxe Error: ${err.response?.data?.error || err.message}`);
+                const errorData = err.response?.data;
+                const errorCode = errorData?.error;
+                const errorMsg = errorData?.detail || errorData?.error || err.message;
+
+                if (errorCode === 'SESSION_LIMIT_REACHED' || errorCode === 'CONCURRENCY_LIMIT_REACHED') {
+                    const action = await vscode.window.showErrorMessage(
+                        `Emuluxe: ${errorMsg}`,
+                        'Upgrade Plan'
+                    );
+                    if (action === 'Upgrade Plan') {
+                        vscode.env.openExternal(vscode.Uri.parse(`${auth.apiUrl}/platform/billing`));
+                    }
+                } else {
+                    vscode.window.showErrorMessage(`Emuluxe Error: ${errorMsg}`);
+                }
             }
         });
     };

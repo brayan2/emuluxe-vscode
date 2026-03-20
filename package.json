@@ -68,6 +68,11 @@
         "category": "Emuluxe"
       },
       {
+        "command": "emuluxe.billing",
+        "title": "Open Billing",
+        "category": "Emuluxe"
+      },
+      {
         "command": "emuluxe.device",
         "title": "Change Device",
         "category": "Emuluxe"

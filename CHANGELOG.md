@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.0] - 2026-03-20
+
+### Changed
+- **Packaging**: Optimized VSIX bundling logic to ensure all required dependencies are included.
+- **Performance**: Improved extension activation time and resource management.
+
 ## [1.0.10] - 2026-03-20
 
 ### Fixed

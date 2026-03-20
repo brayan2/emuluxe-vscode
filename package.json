@@ -2,7 +2,7 @@
   "name": "emuluxe-vscode",
   "displayName": "Emuluxe: Mobile Simulation",
   "description": "Powerful mobile device simulation directly in VS Code and Cursor.",
-  "version": "1.0.10",
+  "version": "1.1.0",
   "publisher": "BrigxelSolutions",
   "icon": "images/icon.png",
   "repository": {
@@ -15,7 +15,15 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:emuluxe.start",
+    "onCommand:emuluxe.login",
+    "onCommand:emuluxe.stop",
+    "onCommand:emuluxe.device",
+    "onCommand:emuluxe.rotate",
+    "onCommand:emuluxe.screenshot",
+    "onCommand:emuluxe.inspect"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "walkthroughs": [
@@ -46,41 +54,67 @@
     "commands": [
       {
         "command": "emuluxe.start",
-        "title": "Emuluxe: Start Simulation",
+        "title": "Start Simulation",
         "category": "Emuluxe"
       },
       {
         "command": "emuluxe.login",
-        "title": "Emuluxe: Login",
+        "title": "Login",
         "category": "Emuluxe"
       },
       {
         "command": "emuluxe.stop",
-        "title": "Emuluxe: Stop Simulation",
+        "title": "Stop Simulation",
         "category": "Emuluxe"
       },
       {
         "command": "emuluxe.device",
-        "title": "Emuluxe: Change Device",
+        "title": "Change Device",
         "category": "Emuluxe"
       },
       {
         "command": "emuluxe.rotate",
-        "title": "Emuluxe: Rotate Device",
+        "title": "Rotate Device",
         "category": "Emuluxe"
       },
       {
         "command": "emuluxe.screenshot",
-        "title": "Emuluxe: Take Screenshot",
+        "title": "Take Screenshot",
         "category": "Emuluxe"
       },
       {
         "command": "emuluxe.inspect",
-        "title": "Emuluxe: Open Inspector",
+        "title": "Open Inspector",
         "category": "Emuluxe"
       }
     ],
     "keybindings": [
+      {
+        "command": "emuluxe.start",
+        "key": "cmd+alt+e",
+        "mac": "cmd+alt+e",
+        "win": "ctrl+alt+e"
+      },
+      {
+        "command": "emuluxe.login",
+        "key": "cmd+alt+l",
+        "mac": "cmd+alt+l",
+        "win": "ctrl+alt+l"
+      },
+      {
+        "command": "emuluxe.device",
+        "key": "cmd+alt+d",
+        "mac": "cmd+alt+d",
+        "win": "ctrl+alt+d",
+        "when": "activeWebviewPanelId == 'emuluxeSim'"
+      },
+      {
+        "command": "emuluxe.stop",
+        "key": "cmd+alt+x",
+        "mac": "cmd+alt+x",
+        "win": "ctrl+alt+x",
+        "when": "activeWebviewPanelId == 'emuluxeSim'"
+      },
       {
         "command": "emuluxe.rotate",
         "key": "cmd+r",
@@ -136,6 +170,16 @@
     "webpack-cli": "^7.0.2"
   },
   "dependencies": {
-    "axios": "^1.13.6"
-  }
+    "axios": "^1.13.6",
+    "sharp": "^0.34.5"
+  },
+  "files": [
+    "dist",
+    "images",
+    "node_modules",
+    "walkthrough",
+    "package.json",
+    "CHANGELOG.md",
+    "README.md"
+  ]
 }

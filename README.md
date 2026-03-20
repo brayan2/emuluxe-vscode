@@ -5,11 +5,22 @@ Emuluxe brings a powerful, full-featured hardware foundry directly into your edi
 Test your web applications natively on realistic device mockups complete with precise resolution sizing and network throttling, directly within VS Code!
 
 ## Key Features
-- **Interactive Device Quick-Pick**: Seamlessly simulate your code on popular devices like iPhone 15 Pro Max, Pixel 8 Pro, and Galaxy S24 Ultra directly inside your active environment without configuring heavy local simulators. 
-- **Keyboard Shortcuts**: Rotate device orientations instantly using `Cmd+R`.
-- **High-Res Screenshot API**: Capture presentation-ready mockups of your app running on Emuluxe using `Cmd+S`.
-- **Plan Enforcement Engine**: Emuluxe automatically pairs your dashboard tier limits (Free, Pro, Enterprise) directly into the IDE so you never lose track of session time.
-- **Auto-Update Supported**: Ensures you're always running the latest engine natively.
+- **Interactive Device Quick-Pick**: Seamlessly simulate your code on popular devices directly inside your active environment (`Cmd+Alt+D`).
+- **Instant Orientation Switching**: Toggle between portrait and landscape instantly using `Cmd+R`.
+- **High-Res Screenshot Engine**: Capture high-fidelity device mockups including the site content with `Cmd+S`.
+- **Developer Inspector**: Open the inspector to debug your proxied application using `Cmd+I`.
+- **Plan Enforcement Engine**: Emuluxe automatically pairs your dashboard tier limits (Free, Pro, Enterprise) directly into the IDE.
+
+## Commands & Shortcuts
+| Command | Shortcut | Description |
+| --- | --- | --- |
+| `Emuluxe: Start Simulation` | `Cmd+Alt+E` | Launch the simulator |
+| `Emuluxe: Change Device` | `Cmd+Alt+D` | Switch active device |
+| `Emuluxe: Rotate Device` | `Cmd+R` | Toggle orientation |
+| `Emuluxe: Take Screenshot` | `Cmd+S` | Capture device snapshot |
+| `Emuluxe: Open Inspector` | `Cmd+I` | Debug webview content |
+| `Emuluxe: Stop Simulation` | `Cmd+Alt+X` | Close the simulator |
+| `Emuluxe: Login` | `Cmd+Alt+L` | Authenticate with Emuluxe |
 
 ## Installation
 1. Install this extension from the marketplace.

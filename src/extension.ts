@@ -392,7 +392,7 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
 
         <!-- Initial loader overlay -->
         <div id="loader">
-            <svg width="100%" height="100%" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;transform:scale(1.1);transform-origin:center center" class="brand-logo">
+            <svg width="100%" height="100%" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;transform:scale(1.3);transform-origin:center center" class="brand-logo">
                 <defs>
                     <linearGradient id="emxAccent_R2mtdb" x1="0" y1="0" x2="68" y2="68" gradientUnits="userSpaceOnUse">
                         <stop offset="0%" stop-color="#0A84FF"></stop>
@@ -404,8 +404,8 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
                     </filter>
                 </defs>
                 <g class="origin-center" transform="rotate(0, 34, 34) translate(0, 0)">
-                    <line x1="18" y1="34" x2="28" y2="34" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.5" stroke-linecap="butt"></line>
-                    <line x1="50" y1="34" x2="40" y2="34" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.5" stroke-linecap="butt"></line>
+                    <line x1="18" y1="34" x2="28" y2="34" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.5" stroke-linecap="butt" class="transition-all duration-500 group-hover:translate-x-1"></line>
+                    <line x1="50" y1="34" x2="40" y2="34" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.5" stroke-linecap="butt" class="transition-all duration-500 group-hover:-translate-x-1"></line>
                     <g filter="url(#emxGlow_R2mtdb)">
                         <path d="M 23,12 L 45,12 A 5,5 0 0 1 50,17 L 50,51 A 5,5 0 0 1 45,56 L 23,56 A 5,5 0 0 1 18,51 L 18,17 A 5,5 0 0 1 23,12 Z" fill="none" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.1" stroke-linejoin="round"></path>
                         <line x1="34" y1="23" x2="34" y2="52" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.1" stroke-linecap="butt"></line>

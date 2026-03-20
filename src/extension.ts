@@ -379,7 +379,6 @@ export function activate(context: vscode.ExtensionContext) {
 function getWebviewContent(embedUrl: string, apiUrl: string) {
     const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode';
     return `<!DOCTYPE html>
-<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -594,9 +593,8 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         // ── Message relay ────────────────────────────────────────────────────
         window.addEventListener('message', event => {
             const data = event.data;
+            console.log('[Emuluxe Webview] Message event received from:', event.origin, 'Type:', data?.type);
             if (!data || !data.type) return;
-
-            console.log('[Emuluxe Webview] Received message:', data.type, data);
 
             // ── Screenshot result from embed page → relay to extension host ──
             // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.

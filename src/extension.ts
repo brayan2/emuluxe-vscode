@@ -525,6 +525,7 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
     </div>
 
     <script>
+        console.log('[Emuluxe Webview] Script Initialized. Version: 1.1.2');
         // ── VS Code API bridge (must be acquired exactly once per webview) ──
         const vscode = acquireVsCodeApi();
 
@@ -590,7 +591,7 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
             setTimeout(() => btnScreenshot.classList.remove('capturing'), 30000);
         });
 
-        // ── Message relay ────────────────────────────────────────────────────
+        console.log('[Emuluxe Webview] Message listener bound.');
         window.addEventListener('message', event => {
             const data = event.data;
             console.log('[Emuluxe Webview] Message event received from:', event.origin, 'Type:', data?.type);
@@ -599,6 +600,7 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
             // ── Screenshot result from embed page → relay to extension host ──
             // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.
             if (data.type === 'EMX_SCREENSHOT_DONE') {
+                console.log('[Emuluxe Webview] Detected EMX_SCREENSHOT_DONE. Length:', data.dataUrl?.length || 0);
                 btnScreenshot.classList.remove('capturing');
                 vscode.postMessage({
                     type: 'screenshot_result',

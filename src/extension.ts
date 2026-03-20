@@ -87,6 +87,81 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(billingCommand);
 
+    // ── Screenshot save helper ──────────────────────────────────────────────
+    const saveScreenshotFromDataUrl = async (dataUrl: string, filename: string) => {
+        try {
+            const base64 = dataUrl.replace(/^data:image\/[a-z+]+;base64,/, '');
+            const bytes = Buffer.from(base64, 'base64');
+            const ext = dataUrl.startsWith('data:image/jpeg') ? 'jpg' : 'png';
+            const defaultName = filename || `Emuluxe_Screenshot_${Date.now()}.${ext}`;
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(defaultName),
+                filters: { 'Images': ['png', 'jpg'] }
+            });
+            if (uri) {
+                await vscode.workspace.fs.writeFile(uri, bytes);
+                vscode.window.showInformationMessage(`Screenshot saved: ${uri.fsPath.split(/[\\/]/).pop()}`);
+            }
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Emuluxe: Screenshot save failed — ${err.message}`);
+        }
+    };
+
+    // ── Direct Puppeteer screenshot fallback (used when embed capture fails) ─
+    const captureViaApi = async (auth: { token: string, apiUrl: string }, url: string, deviceId: string) => {
+        // Best-effort device dimension lookup — extend this map as needed
+        const DEVICE_DIMS: Record<string, { w: number; h: number; dpr: number }> = {
+            'iphone-15-pro-max': { w: 430, h: 932, dpr: 3 },
+            'iphone-15-pro': { w: 393, h: 852, dpr: 3 },
+            'iphone-15': { w: 390, h: 844, dpr: 3 },
+            'samsung-s24-ultra': { w: 412, h: 915, dpr: 3.5 },
+            'pixel-10': { w: 412, h: 915, dpr: 2.6 },
+            'pixel-9': { w: 412, h: 892, dpr: 2.6 },
+            'ipad-pro-13': { w: 1024, h: 1366, dpr: 2 },
+        };
+        const dim = DEVICE_DIMS[deviceId] || { w: 390, h: 844, dpr: 2 };
+
+        const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/.test(url);
+        if (isLocal) {
+            vscode.window.showWarningMessage(
+                'Emuluxe: Local URL detected — the remote screenshot service cannot reach localhost. ' +
+                'Install the Emuluxe Chrome extension for full local-URL screenshot support.'
+            );
+            return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Emuluxe: Capturing screenshot…',
+            cancellable: false
+        }, async () => {
+            try {
+                const params = new URLSearchParams({
+                    url,
+                    width: String(dim.w),
+                    height: String(dim.h),
+                    dpr: String(dim.dpr),
+                    top: '0',
+                    bottom: '0',
+                    full: 'false',
+                    format: 'png',
+                    quality: '0.95',
+                });
+                const res = await axios.get(`${auth.apiUrl}/api/screenshot?${params}`, {
+                    responseType: 'arraybuffer',
+                    headers: { 'Authorization': `Bearer ${auth.token}` },
+                    timeout: 60000,
+                });
+                const base64 = Buffer.from(res.data).toString('base64');
+                const dataUrl = `data:image/png;base64,${base64}`;
+                const filename = `Emuluxe_Screenshot_${deviceId}_${Date.now()}.png`;
+                await saveScreenshotFromDataUrl(dataUrl, filename);
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Emuluxe: API screenshot failed — ${err.message}`);
+            }
+        });
+    };
+
     const startSession = async (deviceId: string, url: string) => {
         const auth = await checkToken();
         if (!auth) return;
@@ -126,6 +201,31 @@ export function activate(context: vscode.ExtensionContext) {
 
                     currentPanel.iconPath = vscode.Uri.parse(`${auth.apiUrl}/favicon.ico`);
                     currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
+
+                    // ── Handle messages from the webview (screenshot relay etc.) ──
+                    currentPanel.webview.onDidReceiveMessage(async (msg) => {
+                        switch (msg.type) {
+                            // Full composite screenshot relayed from the embed page
+                            case 'screenshot_result': {
+                                if (msg.dataUrl) {
+                                    await saveScreenshotFromDataUrl(msg.dataUrl, msg.filename || '');
+                                }
+                                break;
+                            }
+                            // Embed page signals it cannot reach the URL (e.g. localhost) and asks
+                            // the extension to attempt a direct Puppeteer capture instead.
+                            case 'screenshot_fallback': {
+                                const fallbackUrl = msg.url || currentUrl;
+                                await captureViaApi(auth, fallbackUrl, currentDevice);
+                                break;
+                            }
+                            // Embed page URL changed (e.g. user navigated inside the sim)
+                            case 'url_changed': {
+                                if (msg.url) currentUrl = msg.url;
+                                break;
+                            }
+                        }
+                    }, null, context.subscriptions);
 
                     currentPanel.onDidDispose(() => {
                         currentPanel = undefined;
@@ -262,8 +362,11 @@ export function activate(context: vscode.ExtensionContext) {
         if (currentPanel) currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'rotate' });
     });
 
-    let screenshotCommand = vscode.commands.registerCommand('emuluxe.screenshot', () => {
-        if (currentPanel) currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'screenshot' });
+    let screenshotCommand = vscode.commands.registerCommand('emuluxe.screenshot', async () => {
+        if (!currentPanel) return;
+        // Send screenshot command to embed page — the panel's onDidReceiveMessage will
+        // handle saving when the embed posts back EMX_SCREENSHOT_DONE.
+        currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'screenshot' });
     });
 
     let inspectCommand = vscode.commands.registerCommand('emuluxe.inspect', () => {
@@ -307,6 +410,10 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         }
         .tb-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
         .tb-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* Screenshot button active state */
+        #btn-screenshot.capturing { color: #0A84FF; animation: camPulse 0.8s infinite alternate; }
+        @keyframes camPulse { from { opacity: 0.6; } to { opacity: 1; } }
 
         #url-bar {
             flex: 1; display: flex; align-items: center;
@@ -418,9 +525,13 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
     </div>
 
     <script>
+        // ── VS Code API bridge (must be acquired exactly once per webview) ──
+        const vscode = acquireVsCodeApi();
+
         const frame = document.getElementById('sim-frame');
         const urlInput = document.getElementById('url-input');
         const loadingBar = document.getElementById('loading-bar');
+        const btnScreenshot = document.getElementById('btn-screenshot');
 
         // Populate URL bar from the embed URL param
         try {
@@ -442,6 +553,8 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
                     if (newUrl.startsWith('localhost') || newUrl.startsWith('127.0.0.1')) newUrl = 'http://' + newUrl;
                     else newUrl = 'https://' + newUrl;
                 }
+                // Track current URL in extension host
+                vscode.postMessage({ type: 'url_changed', url: newUrl });
                 // Post to embed page so it re-routes through the proxy
                 frame.contentWindow && frame.contentWindow.postMessage({
                     type: 'EMX_IDE_NAVIGATE',
@@ -465,20 +578,57 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         document.getElementById('btn-rotate').addEventListener('click', () => {
             frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'rotate' }, '*');
         });
-        document.getElementById('btn-screenshot').addEventListener('click', () => {
+
+        // ── Screenshot button ────────────────────────────────────────────────
+        // We forward to the embed page AND show a "capturing" state.
+        // The embed page will respond with EMX_SCREENSHOT_DONE which we relay
+        // back to the extension host for file saving.
+        btnScreenshot.addEventListener('click', () => {
+            btnScreenshot.classList.add('capturing');
             frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'screenshot' }, '*');
+            // Fallback: clear capturing state after 30s in case embed never responds
+            setTimeout(() => btnScreenshot.classList.remove('capturing'), 30000);
         });
 
-        // --- Relay VS Code extension messages to embed page ---
+        // ── Message relay ────────────────────────────────────────────────────
         window.addEventListener('message', event => {
-            if (event.data && event.data.type && event.data.type.startsWith('EMX_IDE')) {
-                frame.contentWindow && frame.contentWindow.postMessage(event.data, '*');
+            const data = event.data;
+            if (!data || !data.type) return;
+
+            // ── Screenshot result from embed page → relay to extension host ──
+            // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.
+            if (data.type === 'EMX_SCREENSHOT_DONE') {
+                btnScreenshot.classList.remove('capturing');
+                vscode.postMessage({
+                    type: 'screenshot_result',
+                    dataUrl: data.dataUrl,
+                    filename: data.filename || ('Emuluxe_Screenshot_' + Date.now() + '.png')
+                });
+                return;
             }
-            // Update URL bar when the sim navigates
-            if (event.data && event.data.type === 'EMULUXE_IFRAME_NAVIGATED' && event.data.payload?.url) {
+
+            // ── Embed page cannot capture the site (e.g. localhost) ──
+            // Ask the extension host to attempt a direct API screenshot instead.
+            if (data.type === 'EMX_SCREENSHOT_FALLBACK') {
+                btnScreenshot.classList.remove('capturing');
+                vscode.postMessage({
+                    type: 'screenshot_fallback',
+                    url: data.url || urlInput.value
+                });
+                return;
+            }
+
+            // ── Relay extension → embed for other IDE commands ──
+            if (data.type && data.type.startsWith('EMX_IDE')) {
+                frame.contentWindow && frame.contentWindow.postMessage(data, '*');
+            }
+
+            // ── Update URL bar when the sim navigates ──
+            if (data.type === 'EMULUXE_IFRAME_NAVIGATED' && data.payload?.url) {
                 try {
-                    const nav = new URL(event.data.payload.url);
+                    const nav = new URL(data.payload.url);
                     urlInput.value = nav.href;
+                    vscode.postMessage({ type: 'url_changed', url: nav.href });
                 } catch(e) {}
             }
         });

@@ -121,7 +121,6 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "prepackage": "echo '# Changelog\\n\\n' > CHANGELOG.md && git log --pretty=format:'- %s (%ad)' --date=short -n 25 >> CHANGELOG.md || true",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",

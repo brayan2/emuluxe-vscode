@@ -386,7 +386,7 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         <iframe
             id="sim-frame"
             src="${embedUrl}"
-            allow="geolocation; microphone; camera; midi; encrypted-media; clipboard-read; clipboard-write; display-capture"
+            allow="geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture"
             name="emx-ide-shell"
         ></iframe>
 

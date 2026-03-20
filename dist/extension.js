@@ -470,6 +470,7 @@ function getWebviewContent(embedUrl, apiUrl) {
         <button class="tb-btn" id="btn-screenshot" title="Screenshot">
             <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </button>
+        <span style="font-size: 8px; color: #0A84FF; opacity: 0.6; font-weight: bold; margin-left: auto;">VER 1.1.2</span>
     </div>
 
     <!-- Loading progress bar -->
@@ -581,8 +582,14 @@ function getWebviewContent(embedUrl, apiUrl) {
         console.log('[Emuluxe Webview] Message listener bound.');
         window.addEventListener('message', event => {
             const data = event.data;
-            console.log('[Emuluxe Webview] Message event received from:', event.origin, 'Type:', data?.type);
-            if (!data || !data.type) return;
+            // Stringify data to avoid object reference issues in logs
+            const payloadStr = typeof data === 'object' ? JSON.stringify(data).substring(0, 100) : String(data);
+            console.log('[Emuluxe Webview] Event Received. Origin:', event.origin, 'Payload:', payloadStr);
+
+            if (!data || !data.type) {
+                console.warn('[Emuluxe Webview] Message missing type:', data);
+                return;
+            }
 
             // ── Screenshot result from embed page → relay to extension host ──
             // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.

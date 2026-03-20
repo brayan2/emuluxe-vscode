@@ -94,8 +94,17 @@ export function activate(context: vscode.ExtensionContext) {
             const bytes = Buffer.from(base64, 'base64');
             const ext = dataUrl.startsWith('data:image/jpeg') ? 'jpg' : 'png';
             const defaultName = filename || `Emuluxe_Screenshot_${Date.now()}.${ext}`;
+
+            // Resolve a sensible default save URI.
+            // Using a raw filename leads to '/filename.png' which fails on read-only FS.
+            let defaultUri: vscode.Uri | undefined;
+            if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
+            }
+
             const uri = await vscode.window.showSaveDialog({
-                defaultUri: vscode.Uri.file(defaultName),
+                defaultUri,
+                saveLabel: 'Save Screenshot',
                 filters: { 'Images': ['png', 'jpg'] }
             });
             if (uri) {
@@ -483,7 +492,6 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
         <button class="tb-btn" id="btn-screenshot" title="Screenshot">
             <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </button>
-        <span style="font-size: 8px; color: #0A84FF; opacity: 0.6; font-weight: bold; margin-left: auto;">VER 1.1.2</span>
     </div>
 
     <!-- Loading progress bar -->
@@ -526,7 +534,6 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
     </div>
 
     <script>
-        console.log('[Emuluxe Webview] Script Initialized. Version: 1.1.2');
         // ── VS Code API bridge (must be acquired exactly once per webview) ──
         const vscode = acquireVsCodeApi();
 
@@ -592,22 +599,14 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
             setTimeout(() => btnScreenshot.classList.remove('capturing'), 30000);
         });
 
-        console.log('[Emuluxe Webview] Message listener bound.');
+        // ── Message relay ────────────────────────────────────────────────────
         window.addEventListener('message', event => {
             const data = event.data;
-            // Stringify data to avoid object reference issues in logs
-            const payloadStr = typeof data === 'object' ? JSON.stringify(data).substring(0, 100) : String(data);
-            console.log('[Emuluxe Webview] Event Received. Origin:', event.origin, 'Payload:', payloadStr);
-
-            if (!data || !data.type) {
-                console.warn('[Emuluxe Webview] Message missing type:', data);
-                return;
-            }
+            if (!data || !data.type) return;
 
             // ── Screenshot result from embed page → relay to extension host ──
             // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.
             if (data.type === 'EMX_SCREENSHOT_DONE') {
-                console.log('[Emuluxe Webview] Detected EMX_SCREENSHOT_DONE. Length:', data.dataUrl?.length || 0);
                 btnScreenshot.classList.remove('capturing');
                 vscode.postMessage({
                     type: 'screenshot_result',

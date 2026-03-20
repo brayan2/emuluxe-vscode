@@ -364,6 +364,7 @@ function activate(context) {
     context.subscriptions.push(startCommand, stopCommand, loginCommand, deviceCommand, rotateCommand, screenshotCommand, inspectCommand);
 }
 function getWebviewContent(embedUrl, apiUrl) {
+    const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode';
     return `<!DOCTYPE html>
 <!DOCTYPE html>
 <html lang="en">
@@ -479,7 +480,7 @@ function getWebviewContent(embedUrl, apiUrl) {
     <div id="sim-wrap">
         <iframe
             id="sim-frame"
-            src="${embedUrl}"
+            src="${iframeUrl}"
             allow="geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture"
             name="emx-ide-shell"
         ></iframe>
@@ -581,6 +582,8 @@ function getWebviewContent(embedUrl, apiUrl) {
         window.addEventListener('message', event => {
             const data = event.data;
             if (!data || !data.type) return;
+
+            console.log('[Emuluxe Webview] Received message:', data.type, data);
 
             // ── Screenshot result from embed page → relay to extension host ──
             // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.

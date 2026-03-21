@@ -424,10 +424,17 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        if (currentPanel) {
-            await startSession(selectedDevice, currentUrl);
+        if (currentPanel && activeSessions.length > 0) {
+            // Decoupled device switching: update the first active session in-place
+            const session = activeSessions[0];
+            currentPanel.webview.postMessage({ 
+                type: 'EMX_IDE_CHANGE_DEVICE', 
+                sessionId: session.sessionId,
+                device: selectedDevice
+            });
         } else {
-            vscode.window.showInformationMessage('No active Emuluxe simulation. Run "Emuluxe: Start Simulation" first.');
+            // Fallback to starting a new session if none is active
+            await startSession(selectedDevice, currentUrl);
         }
     });
 
@@ -483,10 +490,16 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
         }
 
         /* ── Top toolbar ── */
-        #toolbar {
-            height: 48px; background: #1a1a1a; display: flex; align-items: center;
-            padding: 0 12px; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);
-            z-index: 100; flex-shrink: 0; flex-wrap: nowrap; overflow: hidden;
+        header {
+            display: flex; align-items: center; padding: 12px 16px;
+            background: #1a1a1a; border-bottom: 1px solid rgba(255,255,255,0.1);
+            gap: 12px;
+        }
+        #session-timer {
+            margin-left: auto; font-size: 11px; font-weight: 700;
+            background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 12px;
+            color: #0A84FF; border: 1px solid rgba(10,132,255,0.2);
+            display: none;
         }
         .tb-group { display: flex; align-items: center; gap: 4px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 4px; }
         .tb-btn {
@@ -601,8 +614,16 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
     </style>
 </head>
 <body>
-    <div id="toolbar">
-        <div class="tb-group">
+    <header>
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="24" height="24" rx="6" fill="#0A84FF"/>
+                <path d="M7 12L10 15L17 8" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Emuluxe</span>
+        </div>
+        <div id="session-timer">00:00</div>
+        <div class="url-bar">
             <button class="tb-btn" id="btn-back" title="Back">
                 <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
@@ -612,11 +633,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             <button class="tb-btn" id="btn-refresh" title="Refresh">
                 <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             </button>
-        </div>
-        
-        <input type="text" id="url-input" placeholder="Enter site URL..." spellcheck="false">
-        
-        <div class="tb-group" style="border-right:none; padding:0; margin-left:auto;">
+            <input type="text" id="url-input" placeholder="Enter site URL..." spellcheck="false">
             <button class="tb-btn" id="btn-add" title="Add More Devices" style="color: #0A84FF;">
                 <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
             </button>
@@ -633,7 +650,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             </button>
         </div>
-    </div>
+    </header>
 
     <!-- Loading progress bar -->
     <div class="loading-bar" id="loading-bar"></div>
@@ -737,31 +754,25 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
                 </div>
             </div>
             <div class="settings-row">
-                <label>Biometrics</label>
-                <button id="btn-biometrics-mock" style="background: #222; border: 1px solid #333; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;">Trigger FaceID Prompt</button>
+                <label>Biometrics ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
+                <button id="btn-biometrics-mock" style="background: #222; border: 1px solid #333; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;" ${isFree ? 'disabled' : ''}>Trigger FaceID Prompt</button>
             </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section" id="section-aesthetics">
             <div class="settings-header">Custom Aesthetics</div>
             <div class="settings-row">
                 <label for="frameColor">Frame Color</label>
-                <input type="text" id="frameColor" placeholder="#000000" style="width: 60px;">
+                <select id="frameColor">
+                    <option value="">Default</option>
+                </select>
             </div>
             <div class="settings-row">
-                <label for="rimColor">Rim Light</label>
-                <input type="text" id="rimColor" placeholder="#ffffff" style="width: 60px;">
-            </div>
-            <div class="settings-row">
-                <label for="statusBarStyle">Status Bar</label>
+                <label for="statusBarStyle">Status Bar Style</label>
                 <select id="statusBarStyle">
                     <option value="light">Light Content</option>
                     <option value="dark">Dark Content</option>
                 </select>
-            </div>
-            <div class="settings-row">
-                <label for="statusBarColor">Status BG</label>
-                <input type="text" id="statusBarColor" placeholder="transparent" style="width: 60px;">
             </div>
         </div>
 
@@ -853,11 +864,18 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
         const btnAdd = document.getElementById('btn-add');
         const settingsPanel = document.getElementById('settings-panel');
         const overlay = document.getElementById('settings-overlay');
+        const timerEl = document.getElementById('session-timer');
+
+        let activeSessionsMetadata = {}; // sessionId -> device metadata
 
         function addDeviceFrame(session) {
             const wrapper = document.createElement('div');
             wrapper.className = 'device-wrapper';
             wrapper.id = 'session-' + session.sessionId;
+            
+            // Store metadata for settings sync
+            activeSessionsMetadata[session.sessionId] = session.device;
+            updateSettingsForDevice(session.sessionId);
 
             const closeBtn = document.createElement('div');
             closeBtn.className = 'close-btn';
@@ -887,6 +905,67 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             if (session.device?.category === 'foldable') {
                 document.getElementById('fold-section').style.display = 'flex';
             }
+
+            // Start timer if expiresAt is provided
+            if (session.expiresAt) {
+                startSessionTimer(session.expiresAt);
+            } else if (IS_FREE) {
+                // Fallback for free users: 10 mins from now
+                startSessionTimer(Date.now() + 600000);
+            }
+        }
+
+        let sessionTimer;
+        function startSessionTimer(expiry) {
+            if (sessionTimer) clearInterval(sessionTimer);
+            timerEl.style.display = 'block';
+            
+            function update() {
+                const remaining = Math.max(0, expiry - Date.now());
+                if (remaining <= 0) {
+                    timerEl.textContent = "Session Expired";
+                    timerEl.style.color = "#FF3B30";
+                    return;
+                }
+                const mins = Math.floor(remaining / 60000);
+                const secs = Math.floor((remaining % 60000) / 1000);
+                timerEl.textContent = mins + ":" + secs.toString().padStart(2, '0');
+            }
+            update();
+            sessionTimer = setInterval(update, 1000);
+        }
+
+        function updateSettingsForDevice(sessionId) {
+            const device = activeSessionsMetadata[sessionId];
+            if (!device) return;
+
+            // 1. Update Frame Colors
+            const colorSelect = document.getElementById('frameColor');
+            const currentValue = colorSelect.value;
+            colorSelect.innerHTML = '<option value="">Default (Auto)</option>';
+            if (device.availableColors) {
+                device.availableColors.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.base;
+                    opt.textContent = c.name;
+                    colorSelect.appendChild(opt);
+                });
+            }
+            if (currentValue) colorSelect.value = currentValue;
+
+            // 2. Filter Browser Engines
+            const browserSelect = document.getElementById('browserId');
+            const currentBrowser = browserSelect.value;
+            const os = (device.os || '').toLowerCase();
+            const isApple = os.includes('ios') || os.includes('ipados') || os.includes('macos');
+            
+            // Show/hide safari based on OS
+            Array.from(browserSelect.options).forEach(opt => {
+                if (opt.value === 'safari') {
+                    opt.style.display = isApple ? 'block' : 'none';
+                    if (!isApple && currentBrowser === 'safari') browserSelect.value = 'chrome';
+                }
+            });
         }
 
         INITIAL_SESSIONS.forEach(addDeviceFrame);
@@ -1010,7 +1089,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
                 else if (key === 'rimColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_rim_color', color: value });
                 else if (key === 'statusBarColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_status_bar_color', color: value });
                 else if (key === 'statusBarStyle') broadcast({ type: 'EMX_IDE_CMD', action: 'set_status_bar_style', style: value });
-                else if (key === 'batteryOverride' || key === 'batteryLevel' || key === 'batteryCharging') {
+                if (key === 'batteryOverride' || key === 'batteryLevel' || key === 'batteryCharging') {
                     const level = document.getElementById('batteryLevel').value;
                     const charging = document.getElementById('batteryCharging').checked;
                     const override = document.getElementById('batteryOverride').checked;
@@ -1035,6 +1114,21 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             if (!data || !data.type) return;
 
             if (data.type === 'EMX_IDE_ADD_DEVICE') addDeviceFrame(data.session);
+            else if (data.type === 'EMX_IDE_CHANGE_DEVICE') {
+                const session = activeSessions.find(s => s.sessionId === data.sessionId);
+                if (session) {
+                    session.device = data.device;
+                    const iframe = document.querySelector('#session-' + data.sessionId + ' iframe');
+                    if (iframe) {
+                        // Update source while preserving URL but changing device param
+                        const url = new URL(iframe.src);
+                        url.searchParams.set('device', data.device.id);
+                        iframe.src = url.toString();
+                    }
+                    activeSessionsMetadata[data.sessionId] = data.device;
+                    updateSettingsForDevice(data.sessionId);
+                }
+            }
             else if (data.type === 'EMX_SCREENSHOT_DONE') {
                 btnScreenshot.classList.remove('capturing');
                 vscode.postMessage({ type: 'screenshot_result', dataUrl: data.dataUrl, filename: data.filename });

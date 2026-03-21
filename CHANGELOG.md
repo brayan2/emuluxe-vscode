@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.2] - 2026-03-21
+
+### Added
+- **Extension Detection**: Enabled the Emuluxe platform to natively recognize the VS Code extension for a seamless login and dashboard experience (resolves "Extension Required" error).
+
 ## [1.1.0] - 2026-03-20
 
 ### Changed

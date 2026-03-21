@@ -1,14 +1,13 @@
 # Changelog
 
-## [1.1.2] - 2026-03-21
-
-### Added
-- **Feature Alignment**: Full parity with the Chrome extension's feature set and plan-based restrictions.
-- **Advanced Customization**: Support for **3D Hover Tilt**, **Foldable** states (Folded/Unfolded), and custom **Frame/Rim colors**.
-- **Hardware Simulation**: Integrated **Manual Battery** level/charging overrides and **Biometrics** (FaceID/TouchID) simulation.
-- **Browser Controls**: Added **Browser Selection** dropdown and visibility toggles for Top/Bottom bars, Full URL, and Native Scrollbars.
-- **Battery Sync**: Real-time synchronization of battery status between the IDE and the simulator.
-- **Plan Gating**: Implemented "PRO" badges and hover messages for restricted features on Free plans.
+### 1.1.2 (2026-03-21)
+- **Full Feature Parity**: Added all remaining features from the Chrome extension to the VS Code panel.
+    - Added **3D Hover Tilt** support for Pro/Enterprise users.
+    - Added **Foldable Controls** (Fold State, Crease) for foldable devices.
+    - Added **Browser Interface Toggles** (Top Bar, Bottom Bar, Full URL, Native Scrollbars).
+- **Simulation Stability**: Fixed a critical regression that caused blank screens on load.
+- **Improved Performance**: Hardened rendering logic and SVG generation for smoother simulation.
+- **Bug Fixes**: Fixed SyntaxError in webview and resolved battery sync issues.
 
 ## [1.1.1] - 2026-03-21
 

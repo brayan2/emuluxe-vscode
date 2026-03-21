@@ -223,6 +223,13 @@ function activate(context) {
                     touchCursor: context.globalState.get('emuluxe.touchCursor', false),
                     fullPage: context.globalState.get('emuluxe.fullPage', false),
                     ua: context.globalState.get('emuluxe.ua', 'ios-safari'),
+                    hoverTilt: context.globalState.get('emuluxe.hoverTilt', false),
+                    nativeScrollbars: context.globalState.get('emuluxe.nativeScrollbars', false),
+                    showTopBar: context.globalState.get('emuluxe.showTopBar', true),
+                    showBottomBar: context.globalState.get('emuluxe.showBottomBar', true),
+                    showFullUrl: context.globalState.get('emuluxe.showFullUrl', false),
+                    foldState: context.globalState.get('emuluxe.foldState', 'unfolded'),
+                    showCrease: context.globalState.get('emuluxe.showCrease', false),
                 };
                 if (currentPanel) {
                     activeSessions.push(session);
@@ -326,7 +333,8 @@ function activate(context) {
                 id: d.id,
                 detail: d.isLocked ? `★ Requires ${d.planRequired} Plan` : undefined,
                 locked: d.isLocked,
-                size: d.size
+                size: d.size,
+                category: d.category
             }));
         }
         catch (err) {
@@ -652,6 +660,31 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                     <span class="slider"></span>
                 </label>
             </div>
+            <div class="settings-row">
+                <label for="hoverTilt">3D Hover Tilt ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
+                <label class="switch">
+                    <input type="checkbox" id="hoverTilt" ${isFree ? 'disabled' : ''}>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div id="fold-section" class="settings-section" style="display: none;">
+            <div class="settings-header">Foldable Controls</div>
+            <div class="settings-row">
+                <label for="foldState">Fold State</label>
+                <select id="foldState">
+                    <option value="unfolded">Unfolded</option>
+                    <option value="folded">Folded</option>
+                </select>
+            </div>
+            <div class="settings-row">
+                <label for="showCrease">Visible Crease</label>
+                <label class="switch">
+                    <input type="checkbox" id="showCrease">
+                    <span class="slider"></span>
+                </label>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -660,6 +693,38 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 <label for="fullPage">Full Page Screenshot ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
                 <label class="switch">
                     <input type="checkbox" id="fullPage" ${isFree ? 'disabled' : ''}>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-header">Browser Interface</div>
+            <div class="settings-row">
+                <label for="showTopBar">Show Top Bar</label>
+                <label class="switch">
+                    <input type="checkbox" id="showTopBar">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-row">
+                <label for="showBottomBar">Show Bottom Bar</label>
+                <label class="switch">
+                    <input type="checkbox" id="showBottomBar">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-row">
+                <label for="showFullUrl">Always Show Full URL</label>
+                <label class="switch">
+                    <input type="checkbox" id="showFullUrl">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-row">
+                <label for="nativeScrollbars">Native Scrollbars</label>
+                <label class="switch">
+                    <input type="checkbox" id="nativeScrollbars">
                     <span class="slider"></span>
                 </label>
             </div>
@@ -721,6 +786,11 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
             frame.addEventListener('load', () => {
                 loadingBar.classList.remove('active');
             });
+
+            // Show foldable section if any active device is foldable
+            if (session.device?.category === 'foldable') {
+                document.getElementById('fold-section').style.display = 'flex';
+            }
         }
 
         INITIAL_SESSIONS.forEach(addDeviceFrame);
@@ -826,6 +896,13 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 else if (key === 'ua') broadcast({ type: 'EMX_IDE_CMD', action: 'update_ua', profile: value });
                 else if (key === 'safeArea') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_safe_area', enabled: value });
                 else if (key === 'touchCursor') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_touch_cursor', enabled: value });
+                else if (key === 'hoverTilt') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_tilt', enabled: value });
+                else if (key === 'nativeScrollbars') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_browser_ui', key: 'nativeScrollbars', enabled: value });
+                else if (key === 'showTopBar') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_browser_ui', key: 'showTopBar', enabled: value });
+                else if (key === 'showBottomBar') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_browser_ui', key: 'showBottomBar', enabled: value });
+                else if (key === 'showFullUrl') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_browser_ui', key: 'showFullUrl', enabled: value });
+                else if (key === 'foldState') broadcast({ type: 'EMX_IDE_CMD', action: 'set_fold_state', state: value });
+                else if (key === 'showCrease') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_crease', enabled: value });
                 else if (key === 'syncBattery') syncBattery();
             });
         });
@@ -847,6 +924,10 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 urlInput.value = data.payload.url;
                 broadcast({ type: 'EMX_IDE_NAVIGATE', url: data.payload.url });
                 vscode.postMessage({ type: 'url_changed', url: data.payload.url });
+            }
+            else if (data.type === 'EMX_IDE_CMD') {
+                // Forward commands from VS Code host to simulation iframes
+                broadcast(data);
             }
         });
     </script>

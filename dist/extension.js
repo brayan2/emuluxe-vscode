@@ -875,6 +875,12 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 else el.value = INITIAL_SETTINGS[key];
             }
         });
+        
+        // Manual Battery visibility on load
+        if (INITIAL_SETTINGS.batteryOverride) {
+            document.getElementById('battery-controls').style.display = 'flex';
+            document.getElementById('batt-val').textContent = INITIAL_SETTINGS.batteryLevel;
+        }
 
         urlInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
@@ -925,6 +931,18 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
         });
 
         // ── Battery Sync ─────────────────────────────────────────────────────
+        async function syncBattery() {
+            if (!document.getElementById('syncBattery').checked) return;
+            try {
+                if ('getBattery' in navigator) {
+                    const battery = await navigator.getBattery();
+                    const update = () => {
+                        broadcast({ 
+                            type: 'EMX_IDE_CMD', 
+                            action: 'sync_battery', 
+                            charging: battery.charging, 
+                            level: battery.level 
+                        });
                     };
                     battery.addEventListener('chargingchange', update);
                     battery.addEventListener('levelchange', update);

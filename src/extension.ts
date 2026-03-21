@@ -598,13 +598,13 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             <button class="tb-btn" id="btn-add" title="Add More Devices" style="color: #0A84FF;">
                 <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
             </button>
-            <button class="tb-btn ${isFree ? 'tb-btn-locked' : ''}" id="btn-rotate" title="${isFree ? 'Rotate (Pro Plan Required)' : 'Rotate (Alt+R)'}">
+            <button class="tb-btn" id="btn-rotate" title="Rotate (Alt+R)">
                 <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             </button>
             <button class="tb-btn ${isFree ? 'tb-btn-locked' : ''}" id="btn-ai" title="${isFree ? 'AI Analyzer (Pro Plan Required)' : 'AI Analyzer'}">
                 <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
             </button>
-            <button class="tb-btn ${isFree ? 'tb-btn-locked' : ''}" id="btn-screenshot" title="${isFree ? 'Screenshot (Pro Plan Required)' : 'Screenshot'}">
+            <button class="tb-btn" id="btn-screenshot" title="Take Screenshot (Snapshot View)">
                 <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
             <button class="tb-btn" id="btn-settings" title="Simulation Settings">
@@ -681,6 +681,17 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
                 <label for="fullPage">Full Page Screenshot ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
                 <label class="switch">
                     <input type="checkbox" id="fullPage" ${isFree ? 'disabled' : ''}>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-header">Host Integration</div>
+            <div class="settings-row">
+                <label for="syncBattery">Sync Battery Status</label>
+                <label class="switch">
+                    <input type="checkbox" id="syncBattery">
                     <span class="slider"></span>
                 </label>
             </div>
@@ -773,13 +784,47 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             broadcast({ type: 'EMX_IDE_CMD', action: 'refresh' });
         });
         document.getElementById('btn-rotate').addEventListener('click', () => {
-            if (IS_FREE) return vscode.postMessage({ type: 'upgrade_required', feature: 'Rotate' });
             broadcast({ type: 'EMX_IDE_CMD', action: 'rotate' });
         });
         document.getElementById('btn-ai').addEventListener('click', () => {
             if (IS_FREE) return vscode.postMessage({ type: 'upgrade_required', feature: 'AI Analyzer' });
             broadcast({ type: 'EMX_IDE_CMD', action: 'trigger_ai' });
         });
+        btnScreenshot.addEventListener('click', () => {
+            const isFullPage = document.getElementById('fullPage').checked;
+            if (isFullPage && IS_FREE) {
+                return vscode.postMessage({ type: 'upgrade_required', feature: 'Full Page Screenshot' });
+            }
+            if (isFullPage) {
+                broadcast({ type: 'EMX_IDE_CMD', action: 'full_page_screenshot' });
+            } else {
+                broadcast({ type: 'EMX_IDE_CMD', action: 'screenshot' });
+            }
+        });
+
+        // ── Battery Sync ─────────────────────────────────────────────────────
+        async function syncBattery() {
+            if (!document.getElementById('syncBattery').checked) return;
+            try {
+                if ('getBattery' in navigator) {
+                    const battery = await (navigator as any).getBattery();
+                    const update = () => {
+                        broadcast({ 
+                            type: 'EMX_IDE_CMD', 
+                            action: 'sync_battery', 
+                            charging: battery.charging, 
+                            level: battery.level 
+                        });
+                    };
+                    battery.addEventListener('chargingchange', update);
+                    battery.addEventListener('levelchange', update);
+                    update();
+                }
+            } catch (err) {}
+        }
+        
+        // Periodic sync in case listeners aren't supported
+        setInterval(syncBattery, 30000);
 
         btnSettings.addEventListener('click', () => {
             settingsPanel.classList.toggle('visible');
@@ -790,6 +835,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             overlay.classList.remove('visible');
         });
 
+        // ── Settings Change Listener ──────────────────────────────────────────
         document.querySelectorAll('.settings-row select, .settings-row input').forEach(el => {
             el.addEventListener('change', () => {
                 const key = el.id;
@@ -801,14 +847,8 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
                 else if (key === 'ua') broadcast({ type: 'EMX_IDE_CMD', action: 'update_ua', profile: value });
                 else if (key === 'safeArea') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_safe_area', enabled: value });
                 else if (key === 'touchCursor') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_touch_cursor', enabled: value });
+                else if (key === 'syncBattery') syncBattery();
             });
-        });
-
-        btnScreenshot.addEventListener('click', () => {
-            if (IS_FREE) return vscode.postMessage({ type: 'upgrade_required', feature: 'Screenshots' });
-            btnScreenshot.classList.add('capturing');
-            broadcast({ type: 'EMX_IDE_CMD', action: 'screenshot', full: document.getElementById('fullPage').checked });
-            setTimeout(() => btnScreenshot.classList.remove('capturing'), 30000);
         });
 
         window.addEventListener('message', event => {

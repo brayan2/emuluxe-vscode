@@ -86,6 +86,37 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(billingCommand);
+    
+    // ── Deep Link Handler ───────────────────────────────────────────────────
+    context.subscriptions.push(vscode.window.registerUriHandler({
+        handleUri(uri: vscode.Uri) {
+            if (uri.path === '/auth') {
+                const query = new URLSearchParams(uri.query);
+                const token = query.get('token');
+                if (token) {
+                    vscode.workspace.getConfiguration('emuluxe').update('token', token, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage('Emuluxe: Successfully signed in!');
+                    
+                    // Refresh plan and status bar
+                    const apiUrl = vscode.workspace.getConfiguration('emuluxe').get<string>('apiUrl') || 'https://app.emuluxe.com';
+                    getPlanInfo({ token, apiUrl }).then(plan => {
+                        if (plan) updateStatusBar(plan);
+                    });
+
+                    // Reload simulator if active to reflect new auth state
+                    if (currentPanel) {
+                        vscode.window.showInformationMessage('Emuluxe: Reloading simulator to apply new session...');
+                        // Just trigger a re-render of the webview content
+                        getPlanInfo({ token, apiUrl }).then(plan => {
+                             if (currentPanel) {
+                                  currentPanel.webview.html = getWebviewContent(activeSessions, apiUrl, {}, plan?.plan || 'free');
+                             }
+                        });
+                    }
+                }
+            }
+        }
+    }));
 
     // ── Screenshot save helper ──────────────────────────────────────────────
     const saveScreenshotFromDataUrl = async (dataUrl: string, filename: string) => {
@@ -290,6 +321,12 @@ export function activate(context: vscode.ExtensionContext) {
                                 if (msg.key) {
                                     context.globalState.update(`emuluxe.${msg.key}`, msg.value);
                                 }
+                                break;
+                            }
+                            case 'external_login': {
+                                const config = vscode.workspace.getConfiguration('emuluxe');
+                                const apiUrl = config.get<string>('apiUrl') || 'https://app.emuluxe.com';
+                                vscode.env.openExternal(vscode.Uri.parse(`${apiUrl}/platform/login?source=vscode_external`));
                                 break;
                             }
                             case 'upgrade_required': {
@@ -1096,7 +1133,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
                     if (sessionId) {
                         const device = activeSessionsMetadata[sessionId];
                         if (device && device.availableColors) {
-                            const c = device.availableColors.find((c: any) => c.base === value);
+                            const c = device.availableColors.find((c) => c.base === value);
                             if (c) {
                                 broadcast({ type: 'EMX_IDE_CMD', action: 'set_frame_color', color: c.base });
                                 broadcast({ type: 'EMX_IDE_CMD', action: 'set_rim_color', color: c.rim || c.edge });
@@ -1134,7 +1171,10 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             const data = event.data;
             if (!data || !data.type) return;
 
-            if (data.type === 'EMX_IDE_ADD_DEVICE') addDeviceFrame(data.session);
+            if (data.type === 'EMX_EXTERNAL_LOGIN') {
+                vscode.postMessage({ type: 'external_login' });
+            }
+            else if (data.type === 'EMX_IDE_ADD_DEVICE') addDeviceFrame(data.session);
             else if (data.type === 'EMX_IDE_CHANGE_DEVICE') {
                 const wrapper = document.getElementById('session-' + data.sessionId);
                 if (wrapper) {

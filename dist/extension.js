@@ -478,6 +478,10 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
             color: #0A84FF; border: 1px solid rgba(10,132,255,0.2);
             display: none;
         }
+        .url-bar {
+            display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: nowrap; overflow: hidden; justify-content: flex-end;
+        }
+        .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #fff; flex-shrink: 0; }
         .tb-group { display: flex; align-items: center; gap: 4px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 4px; }
         .tb-btn {
             background: transparent; border: none; color: #ccc;
@@ -1010,24 +1014,26 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
         });
 
         // ── Battery Sync ─────────────────────────────────────────────────────
-        async function syncBattery() {
-            if (!document.getElementById('syncBattery').checked) return;
-            try {
-                if ('getBattery' in navigator) {
-                    const battery = await navigator.getBattery();
-                    const update = () => {
-                        broadcast({ 
-                            type: 'EMX_IDE_CMD', 
-                            action: 'sync_battery', 
-                            charging: battery.charging, 
-                            level: battery.level 
-                        });
-                    };
-                    battery.addEventListener('chargingchange', update);
-                    battery.addEventListener('levelchange', update);
-                    update();
-                }
-            } catch (err) {}
+        function syncBattery() {
+            if (navigator.getBattery) {
+                navigator.getBattery().then(batt => {
+                    const level = Math.round(batt.level * 100);
+                    broadcast({ 
+                        type: 'EMX_IDE_CMD', 
+                        action: 'set_battery_manual', 
+                        level: level, 
+                        charging: batt.charging 
+                    });
+                    const levelInput = document.getElementById('batteryLevel');
+                    const chargingInput = document.getElementById('batteryCharging');
+                    if (levelInput) levelInput.value = level;
+                    if (chargingInput) chargingInput.checked = batt.charging;
+                    const battVal = document.getElementById('batt-val');
+                    if (battVal) battVal.textContent = level;
+                });
+            } else {
+                broadcast({ type: 'EMX_IDE_CMD', action: 'set_battery_manual', level: 100, charging: true });
+            }
         }
         
         // Periodic sync in case listeners aren't supported
@@ -1092,10 +1098,9 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
 
             if (data.type === 'EMX_IDE_ADD_DEVICE') addDeviceFrame(data.session);
             else if (data.type === 'EMX_IDE_CHANGE_DEVICE') {
-                const session = activeSessions.find(s => s.sessionId === data.sessionId);
-                if (session) {
-                    session.device = data.device;
-                    const iframe = document.querySelector('#session-' + data.sessionId + ' iframe');
+                const wrapper = document.getElementById('session-' + data.sessionId);
+                if (wrapper) {
+                    const iframe = wrapper.querySelector('iframe');
                     if (iframe) {
                         // Update source while preserving URL but changing device param
                         const url = new URL(iframe.src);

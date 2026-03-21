@@ -230,7 +230,19 @@ function activate(context) {
                     showFullUrl: context.globalState.get('emuluxe.showFullUrl', false),
                     foldState: context.globalState.get('emuluxe.foldState', 'unfolded'),
                     showCrease: context.globalState.get('emuluxe.showCrease', false),
+                    browserId: context.globalState.get('emuluxe.browserId', 'safari'),
+                    frameColor: context.globalState.get('emuluxe.frameColor', ''),
+                    rimColor: context.globalState.get('emuluxe.rimColor', ''),
+                    statusBarColor: context.globalState.get('emuluxe.statusBarColor', ''),
+                    statusBarStyle: context.globalState.get('emuluxe.statusBarStyle', 'light'),
+                    batteryOverride: context.globalState.get('emuluxe.batteryOverride', false),
+                    batteryLevel: context.globalState.get('emuluxe.batteryLevel', 80),
+                    batteryCharging: context.globalState.get('emuluxe.batteryCharging', true),
                 };
+                // Immediately sync battery on start
+                if (currentPanel) {
+                    currentPanel.webview.postMessage({ type: 'EMX_IDE_CMD', action: 'sync_battery_now' });
+                }
                 if (currentPanel) {
                     activeSessions.push(session);
                     currentPanel.webview.postMessage({ type: 'EMX_IDE_ADD_DEVICE', session });
@@ -642,6 +654,16 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                     <option value="edge-android" ${isFree ? 'disabled' : ''}>Edge Android</option>
                 </select>
             </div>
+            <div class="settings-row">
+                <label for="browserId">Browser Engine</label>
+                <select id="browserId">
+                    <option value="safari">Safari</option>
+                    <option value="chrome">Chrome</option>
+                    <option value="firefox">Firefox</option>
+                    <option value="edge">Edge</option>
+                    <option value="samsung-internet">Samsung Internet</option>
+                </select>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -661,11 +683,62 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 </label>
             </div>
             <div class="settings-row">
-                <label for="hoverTilt">3D Hover Tilt ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
+                <label for="hoverTilt">3D Hover Tilt</label>
                 <label class="switch">
-                    <input type="checkbox" id="hoverTilt" ${isFree ? 'disabled' : ''}>
+                    <input type="checkbox" id="hoverTilt">
                     <span class="slider"></span>
                 </label>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-header">Hardware Simulation</div>
+            <div class="settings-row">
+                <label for="batteryOverride">Manual Battery</label>
+                <label class="switch">
+                    <input type="checkbox" id="batteryOverride">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div id="battery-controls" style="display: none; flex-direction: column; gap: 8px; margin-top: 4px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.1);">
+                <div class="settings-row">
+                    <label>Level (<span id="batt-val">80</span>%)</label>
+                    <input type="range" id="batteryLevel" min="0" max="100" style="width: 80px;">
+                </div>
+                <div class="settings-row">
+                    <label>Charging</label>
+                    <label class="switch">
+                        <input type="checkbox" id="batteryCharging">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="settings-row">
+                <label>Biometrics</label>
+                <button id="btn-biometrics-mock" style="background: #222; border: 1px solid #333; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 10px; cursor: pointer;">Trigger FaceID Prompt</button>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-header">Custom Aesthetics</div>
+            <div class="settings-row">
+                <label for="frameColor">Frame Color</label>
+                <input type="text" id="frameColor" placeholder="#000000" style="width: 60px;">
+            </div>
+            <div class="settings-row">
+                <label for="rimColor">Rim Light</label>
+                <input type="text" id="rimColor" placeholder="#ffffff" style="width: 60px;">
+            </div>
+            <div class="settings-row">
+                <label for="statusBarStyle">Status Bar</label>
+                <select id="statusBarStyle">
+                    <option value="light">Light Content</option>
+                    <option value="dark">Dark Content</option>
+                </select>
+            </div>
+            <div class="settings-row">
+                <label for="statusBarColor">Status BG</label>
+                <input type="text" id="statusBarColor" placeholder="transparent" style="width: 60px;">
             </div>
         </div>
 
@@ -852,18 +925,6 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
         });
 
         // ── Battery Sync ─────────────────────────────────────────────────────
-        async function syncBattery() {
-            if (!document.getElementById('syncBattery').checked) return;
-            try {
-                if ('getBattery' in navigator) {
-                    const battery = await navigator.getBattery();
-                    const update = () => {
-                        broadcast({ 
-                            type: 'EMX_IDE_CMD', 
-                            action: 'sync_battery', 
-                            charging: battery.charging, 
-                            level: battery.level 
-                        });
                     };
                     battery.addEventListener('chargingchange', update);
                     battery.addEventListener('levelchange', update);
@@ -903,8 +964,29 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 else if (key === 'showFullUrl') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_browser_ui', key: 'showFullUrl', enabled: value });
                 else if (key === 'foldState') broadcast({ type: 'EMX_IDE_CMD', action: 'set_fold_state', state: value });
                 else if (key === 'showCrease') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_crease', enabled: value });
+                else if (key === 'browserId') broadcast({ type: 'EMX_IDE_CMD', action: 'set_browser', browserId: value });
+                else if (key === 'frameColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_frame_color', color: value });
+                else if (key === 'rimColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_rim_color', color: value });
+                else if (key === 'statusBarColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_status_bar_color', color: value });
+                else if (key === 'statusBarStyle') broadcast({ type: 'EMX_IDE_CMD', action: 'set_status_bar_style', style: value });
+                else if (key === 'batteryOverride' || key === 'batteryLevel' || key === 'batteryCharging') {
+                    const level = document.getElementById('batteryLevel').value;
+                    const charging = document.getElementById('batteryCharging').checked;
+                    const override = document.getElementById('batteryOverride').checked;
+                    document.getElementById('batt-val').textContent = level;
+                    document.getElementById('battery-controls').style.display = override ? 'flex' : 'none';
+                    if (override) {
+                        broadcast({ type: 'EMX_IDE_CMD', action: 'set_battery_manual', level: parseInt(level), charging });
+                    } else {
+                        syncBattery();
+                    }
+                }
                 else if (key === 'syncBattery') syncBattery();
             });
+        });
+
+        document.getElementById('btn-biometrics-mock').addEventListener('click', () => {
+             broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_biometrics', enabled: true });
         });
 
         window.addEventListener('message', event => {
@@ -927,6 +1009,7 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
             }
             else if (data.type === 'EMX_IDE_CMD') {
                 // Forward commands from VS Code host to simulation iframes
+                if (data.action === 'sync_battery_now') syncBattery();
                 broadcast(data);
             }
         });

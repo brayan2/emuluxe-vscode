@@ -175,7 +175,15 @@ export function activate(context: vscode.ExtensionContext) {
         const auth = await checkToken();
         if (!auth) return;
 
-        currentUrl = url;
+        let simulatorUrl = url;
+        if (simulatorUrl.startsWith(auth.apiUrl)) {
+            try {
+                const u = new URL(simulatorUrl);
+                u.searchParams.set('source', 'vscode');
+                simulatorUrl = u.toString();
+            } catch (e) { }
+        }
+        currentUrl = simulatorUrl;
 
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,

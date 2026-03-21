@@ -229,7 +229,8 @@ export function activate(context: vscode.ExtensionContext) {
 
                     currentPanel.iconPath = vscode.Uri.parse(`${auth.apiUrl}/favicon.ico`);
                     activeSessions = [session];
-                    currentPanel.webview.html = getWebviewContent(activeSessions, auth.apiUrl, initialSettings);
+                    const planResult = await getPlanInfo(auth);
+                    currentPanel.webview.html = getWebviewContent(activeSessions, auth.apiUrl, initialSettings, planResult?.plan || 'free');
 
                     currentPanel.webview.onDidReceiveMessage(async (msg) => {
                         switch (msg.type) {
@@ -268,6 +269,16 @@ export function activate(context: vscode.ExtensionContext) {
                             case 'update_setting': {
                                 if (msg.key) {
                                     context.globalState.update(`emuluxe.${msg.key}`, msg.value);
+                                }
+                                break;
+                            }
+                            case 'upgrade_required': {
+                                const action = await vscode.window.showInformationMessage(
+                                    `Emuluxe: ${msg.feature} requires a Pro plan.`,
+                                    'Upgrade Plan'
+                                );
+                                if (action === 'Upgrade Plan') {
+                                    vscode.env.openExternal(vscode.Uri.parse(`${auth.apiUrl}/platform/billing`));
                                 }
                                 break;
                             }
@@ -428,9 +439,10 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(startCommand, stopCommand, loginCommand, deviceCommand, rotateCommand, screenshotCommand, inspectCommand);
 }
 
-function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) {
+function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, userPlan: string = 'free') {
     const sessionsJson = JSON.stringify(sessions);
     const settingsJson = JSON.stringify(settings);
+    const isFree = userPlan === 'free';
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -475,12 +487,13 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
         /* ── Main display ── */
         main { display: flex; flex: 1; overflow: hidden; position: relative; }
         #sim-container {
-            display: flex; flex-wrap: wrap; gap: 40px; justify-content: center; align-items: flex-start;
-            padding: 40px; flex: 1; overflow: auto; background: #000;
+            display: flex; flex-direction: column; align-items: center;
+            padding: 0px; flex: 1; overflow: auto; background: #000;
         }
 
         .device-wrapper {
             position: relative; transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
+            width: 100%; height: 100%; display: flex; items-center justify-center;
         }
         .device-wrapper .close-btn {
             position: absolute; top: -15px; right: -15px; width: 30px; height: 30px;
@@ -548,6 +561,21 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
         }
         input:checked + .slider { background-color: #0A84FF; }
         input:checked + .slider:before { transform: translateX(14px); }
+
+        /* Pro Badge */
+        .pro-locked { pointer-events: none; opacity: 0.5; filter: grayscale(1); }
+        .pro-badge {
+            font-size: 8px; font-weight: 800; background: #0A84FF; color: #fff;
+            padding: 2px 4px; border-radius: 4px; margin-left: 6px;
+            vertical-align: middle; text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(10,132,255,0.4);
+        }
+        .tb-btn-locked { position: relative; }
+        .tb-btn-locked::after {
+            content: 'PRO'; position: absolute; top: -2px; right: -2px;
+            font-size: 7px; font-weight: 900; background: #0A84FF; color: #fff;
+            padding: 1px 3px; border-radius: 3px; line-height: 1;
+        }
     </style>
 </head>
 <body>
@@ -570,13 +598,13 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
             <button class="tb-btn" id="btn-add" title="Add More Devices" style="color: #0A84FF;">
                 <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
             </button>
-            <button class="tb-btn" id="btn-rotate" title="Rotate (Alt+R)">
+            <button class="tb-btn ${isFree ? 'tb-btn-locked' : ''}" id="btn-rotate" title="${isFree ? 'Rotate (Pro Plan Required)' : 'Rotate (Alt+R)'}">
                 <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             </button>
-            <button class="tb-btn" id="btn-ai" title="AI Analyzer">
+            <button class="tb-btn ${isFree ? 'tb-btn-locked' : ''}" id="btn-ai" title="${isFree ? 'AI Analyzer (Pro Plan Required)' : 'AI Analyzer'}">
                 <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
             </button>
-            <button class="tb-btn" id="btn-screenshot" title="Screenshot">
+            <button class="tb-btn ${isFree ? 'tb-btn-locked' : ''}" id="btn-screenshot" title="${isFree ? 'Screenshot (Pro Plan Required)' : 'Screenshot'}">
                 <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
             <button class="tb-btn" id="btn-settings" title="Simulation Settings">
@@ -599,32 +627,32 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
         
         <div class="settings-section">
             <div class="settings-row">
-                <label for="network">Network Profile</label>
-                <select id="network">
+                <label for="network">Network Profile ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
+                <select id="network" title="${isFree ? 'Pro Plan Required' : ''}">
                     <option value="no-throttle">No Throttle</option>
-                    <option value="5g">5G (Ultra Fast)</option>
-                    <option value="4g-lte">4G LTE</option>
-                    <option value="3g-fast">3G (Fast)</option>
-                    <option value="3g-slow">3G (Slow)</option>
-                    <option value="offline">Offline</option>
+                    <option value="5g" ${isFree ? 'disabled' : ''}>5G (Ultra Fast)</option>
+                    <option value="4g-lte" ${isFree ? 'disabled' : ''}>4G LTE</option>
+                    <option value="3g-fast" ${isFree ? 'disabled' : ''}>3G (Fast)</option>
+                    <option value="3g-slow" ${isFree ? 'disabled' : ''}>3G (Slow)</option>
+                    <option value="offline" ${isFree ? 'disabled' : ''}>Offline</option>
                 </select>
             </div>
             <div class="settings-row">
-                <label for="geolocation">Location (GPS)</label>
-                <select id="geolocation">
+                <label for="geolocation">Location (GPS) ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
+                <select id="geolocation" title="${isFree ? 'Pro Plan Required' : ''}">
                     <option value="none">Actual Location</option>
-                    <option value="san-francisco">San Francisco</option>
-                    <option value="new-york">New York</option>
-                    <option value="london">London</option>
-                    <option value="tokyo">Tokyo</option>
+                    <option value="san-francisco" ${isFree ? 'disabled' : ''}>San Francisco</option>
+                    <option value="new-york" ${isFree ? 'disabled' : ''}>New York</option>
+                    <option value="london" ${isFree ? 'disabled' : ''}>London</option>
+                    <option value="tokyo" ${isFree ? 'disabled' : ''}>Tokyo</option>
                 </select>
             </div>
             <div class="settings-row">
-                <label for="ua">User Agent</label>
-                <select id="ua">
+                <label for="ua">User Agent ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
+                <select id="ua" title="${isFree ? 'Pro Plan Required' : ''}">
                     <option value="ios-safari">iOS Safari</option>
-                    <option value="chrome-android">Chrome Android</option>
-                    <option value="edge-android">Edge Android</option>
+                    <option value="chrome-android" ${isFree ? 'disabled' : ''}>Chrome Android</option>
+                    <option value="edge-android" ${isFree ? 'disabled' : ''}>Edge Android</option>
                 </select>
             </div>
         </div>
@@ -650,9 +678,9 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
         <div class="settings-section">
             <div class="settings-header">Capture Settings</div>
             <div class="settings-row">
-                <label for="fullPage">Full Page Screenshot</label>
+                <label for="fullPage">Full Page Screenshot ${isFree ? '<span class="pro-badge">PRO</span>' : ''}</label>
                 <label class="switch">
-                    <input type="checkbox" id="fullPage">
+                    <input type="checkbox" id="fullPage" ${isFree ? 'disabled' : ''}>
                     <span class="slider"></span>
                 </label>
             </div>
@@ -661,6 +689,8 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
 
     <script>
         const vscode = acquireVsCodeApi();
+        const USER_PLAN = '${userPlan}';
+        const IS_FREE = USER_PLAN === 'free';
         const INITIAL_SETTINGS = ${settingsJson};
         const INITIAL_SESSIONS = ${sessionsJson};
 
@@ -691,9 +721,8 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
             frame.src = session.embedUrl + '&source=vscode';
             frame.allow = 'geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture';
             
-            const { w, h } = session.device.size || { w: 375, h: 812 };
-            frame.style.width = (w + 100) + 'px';
-            frame.style.height = (h + 100) + 'px';
+            frame.style.width = '100%';
+            frame.style.height = '100%';
 
             wrapper.appendChild(closeBtn);
             wrapper.appendChild(frame);
@@ -743,8 +772,14 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
             loadingBar.classList.add('active');
             broadcast({ type: 'EMX_IDE_CMD', action: 'refresh' });
         });
-        document.getElementById('btn-rotate').addEventListener('click', () => broadcast({ type: 'EMX_IDE_CMD', action: 'rotate' }));
-        document.getElementById('btn-ai').addEventListener('click', () => broadcast({ type: 'EMX_IDE_CMD', action: 'trigger_ai' }));
+        document.getElementById('btn-rotate').addEventListener('click', () => {
+            if (IS_FREE) return vscode.postMessage({ type: 'upgrade_required', feature: 'Rotate' });
+            broadcast({ type: 'EMX_IDE_CMD', action: 'rotate' });
+        });
+        document.getElementById('btn-ai').addEventListener('click', () => {
+            if (IS_FREE) return vscode.postMessage({ type: 'upgrade_required', feature: 'AI Analyzer' });
+            broadcast({ type: 'EMX_IDE_CMD', action: 'trigger_ai' });
+        });
 
         btnSettings.addEventListener('click', () => {
             settingsPanel.classList.toggle('visible');
@@ -770,6 +805,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) 
         });
 
         btnScreenshot.addEventListener('click', () => {
+            if (IS_FREE) return vscode.postMessage({ type: 'upgrade_required', feature: 'Screenshots' });
             btnScreenshot.classList.add('capturing');
             broadcast({ type: 'EMX_IDE_CMD', action: 'screenshot', full: document.getElementById('fullPage').checked });
             setTimeout(() => btnScreenshot.classList.remove('capturing'), 30000);

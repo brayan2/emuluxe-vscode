@@ -219,11 +219,11 @@ function activate(context) {
                 const initialSettings = {
                     network: context.globalState.get('emuluxe.network', 'no-throttle'),
                     geolocation: context.globalState.get('emuluxe.geolocation', 'none'),
-                    safeArea: context.globalState.get('emuluxe.safeArea', false),
-                    touchCursor: context.globalState.get('emuluxe.touchCursor', false),
-                    fullPage: context.globalState.get('emuluxe.fullPage', false),
+                    safeArea: false,
+                    touchCursor: false,
+                    fullPage: false,
                     ua: context.globalState.get('emuluxe.ua', 'ios-safari'),
-                    hoverTilt: context.globalState.get('emuluxe.hoverTilt', false),
+                    hoverTilt: false,
                     nativeScrollbars: context.globalState.get('emuluxe.nativeScrollbars', false),
                     showTopBar: context.globalState.get('emuluxe.showTopBar', true),
                     showBottomBar: context.globalState.get('emuluxe.showBottomBar', true),
@@ -1068,7 +1068,22 @@ function getWebviewContent(sessions, apiUrl, settings = {}, userPlan = 'free') {
                 else if (key === 'foldState') broadcast({ type: 'EMX_IDE_CMD', action: 'set_fold_state', state: value });
                 else if (key === 'showCrease') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_crease', enabled: value });
                 else if (key === 'browserId') broadcast({ type: 'EMX_IDE_CMD', action: 'set_browser', browserId: value });
-                else if (key === 'frameColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_frame_color', color: value });
+                else if (key === 'frameColor') {
+                    const sessionId = Object.keys(activeSessionsMetadata)[0];
+                    if (sessionId) {
+                        const device = activeSessionsMetadata[sessionId];
+                        if (device && device.availableColors) {
+                            const c = device.availableColors.find((c: any) => c.base === value);
+                            if (c) {
+                                broadcast({ type: 'EMX_IDE_CMD', action: 'set_frame_color', color: c.base });
+                                broadcast({ type: 'EMX_IDE_CMD', action: 'set_rim_color', color: c.rim || c.edge });
+                            } else {
+                                broadcast({ type: 'EMX_IDE_CMD', action: 'set_frame_color', color: '' });
+                                broadcast({ type: 'EMX_IDE_CMD', action: 'set_rim_color', color: '' });
+                            }
+                        }
+                    }
+                }
                 else if (key === 'rimColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_rim_color', color: value });
                 else if (key === 'statusBarColor') broadcast({ type: 'EMX_IDE_CMD', action: 'set_status_bar_color', color: value });
                 else if (key === 'statusBarStyle') broadcast({ type: 'EMX_IDE_CMD', action: 'set_status_bar_style', style: value });

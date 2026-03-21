@@ -23,7 +23,7 @@ Our research into the Emuluxe Chrome extension, Platform Simulation Page, and Pr
 ## ✨ Premium Aesthetics & Advanced Testing
 *   **3D Hover Tilt**: Interactive 3D tilt effect on the device frame (**All Plans**).
 *   **Device Metadata**: Display DPR, Viewport resolution in the Status Bar (**All Plans**).
-*   **Interactive Battery Simulation**: Test Battery Status API hooks (**Pro/Enterprise**).
+*   **Interactive Battery Simulation**: Test Battery Status API hooks (**Free/Pro/Enterprise**).
 *   **AI Page Insights**: Integrated "Scan for Issues" button (**Pro: 3 points, Enterprise: Deep Analysis/Copilot**).
 *   **Custom User-Agents**: Fully customizable UA strings (**Pro/Enterprise**).
 

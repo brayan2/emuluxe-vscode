@@ -377,6 +377,8 @@ export function activate(context: vscode.ExtensionContext) {
         locked: boolean;
         size?: { w: number, h: number };
         category?: string;
+        availableColors?: any[];
+        os?: string;
     }
 
     const getDevices = async (auth: { token: string, apiUrl: string }): Promise<EmxDevice[]> => {
@@ -393,7 +395,9 @@ export function activate(context: vscode.ExtensionContext) {
                 detail: d.isLocked ? `★ Requires ${d.planRequired} Plan` : undefined,
                 locked: d.isLocked,
                 size: d.size,
-                category: d.category
+                category: d.category,
+                availableColors: d.availableColors,
+                os: d.os
             }));
         } catch (err: any) {
             vscode.window.showErrorMessage(`Emuluxe: Failed to fetch devices. ${err.message}`);

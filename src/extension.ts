@@ -807,7 +807,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
             if (!document.getElementById('syncBattery').checked) return;
             try {
                 if ('getBattery' in navigator) {
-                    const battery = await (navigator as any).getBattery();
+                    const battery = await navigator.getBattery();
                     const update = () => {
                         broadcast({ 
                             type: 'EMX_IDE_CMD', 

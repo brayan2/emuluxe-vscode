@@ -4,8 +4,8 @@ import axios from 'axios';
 // Removed hardcoded DEVICES
 
 let currentPanel: vscode.WebviewPanel | undefined = undefined;
+let activeSessions: { device: any; sessionId: string; embedUrl: string }[] = [];
 let currentUrl: string = 'http://localhost:3000';
-let currentDevice: string = 'iphone-15-pro-max';
 let statusBarItem: vscode.StatusBarItem;
 
 interface PlanInfo {
@@ -117,7 +117,7 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     // ── Direct Puppeteer screenshot fallback (used when embed capture fails) ─
-    const captureViaApi = async (auth: { token: string, apiUrl: string }, url: string, deviceId: string) => {
+    const captureViaApi = async (auth: { token: string, apiUrl: string }, url: string, deviceId: string, size?: { w: number, h: number }) => {
         // Best-effort device dimension lookup — extend this map as needed
         const DEVICE_DIMS: Record<string, { w: number; h: number; dpr: number }> = {
             'iphone-15-pro-max': { w: 430, h: 932, dpr: 3 },
@@ -128,7 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
             'pixel-9': { w: 412, h: 892, dpr: 2.6 },
             'ipad-pro-13': { w: 1024, h: 1366, dpr: 2 },
         };
-        const dim = DEVICE_DIMS[deviceId] || { w: 390, h: 844, dpr: 2 };
+        const dim = size ? { w: size.w, h: size.h, dpr: 2 } : (DEVICE_DIMS[deviceId] || { w: 390, h: 844, dpr: 2 });
 
         const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/.test(url);
         if (isLocal) {
@@ -171,21 +171,20 @@ export function activate(context: vscode.ExtensionContext) {
         });
     };
 
-    const startSession = async (deviceId: string, url: string) => {
+    const startSession = async (device: any, url: string) => {
         const auth = await checkToken();
         if (!auth) return;
 
         currentUrl = url;
-        currentDevice = deviceId;
 
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: `Starting ${deviceId} Simulation...`,
+            title: `Starting ${device.label} Simulation...`,
             cancellable: false
         }, async (progress) => {
             try {
                 const res = await axios.post(`${auth.apiUrl}/api/cli/session`, {
-                    device: deviceId,
+                    device: device.id,
                     url: url,
                     source: 'vscode'
                 }, {
@@ -193,9 +192,21 @@ export function activate(context: vscode.ExtensionContext) {
                 });
 
                 const { embedUrl, sessionId } = res.data;
+                const session = { device, sessionId, embedUrl };
+
+                // Fetch initial settings from globalState
+                const initialSettings = {
+                    network: context.globalState.get('emuluxe.network', 'no-throttle'),
+                    geolocation: context.globalState.get('emuluxe.geolocation', 'none'),
+                    safeArea: context.globalState.get('emuluxe.safeArea', false),
+                    touchCursor: context.globalState.get('emuluxe.touchCursor', false),
+                    fullPage: context.globalState.get('emuluxe.fullPage', false),
+                    ua: context.globalState.get('emuluxe.ua', 'ios-safari'),
+                };
 
                 if (currentPanel) {
-                    currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
+                    activeSessions.push(session);
+                    currentPanel.webview.postMessage({ type: 'EMX_IDE_ADD_DEVICE', session });
                     currentPanel.reveal(vscode.ViewColumn.Two);
                 } else {
                     currentPanel = vscode.window.createWebviewPanel(
@@ -209,38 +220,60 @@ export function activate(context: vscode.ExtensionContext) {
                     );
 
                     currentPanel.iconPath = vscode.Uri.parse(`${auth.apiUrl}/favicon.ico`);
-                    currentPanel.webview.html = getWebviewContent(embedUrl, auth.apiUrl);
+                    activeSessions = [session];
+                    currentPanel.webview.html = getWebviewContent(activeSessions, auth.apiUrl, initialSettings);
 
-                    // ── Handle messages from the webview (screenshot relay etc.) ──
                     currentPanel.webview.onDidReceiveMessage(async (msg) => {
                         switch (msg.type) {
-                            // Full composite screenshot relayed from the embed page
                             case 'screenshot_result': {
                                 if (msg.dataUrl) {
                                     await saveScreenshotFromDataUrl(msg.dataUrl, msg.filename || '');
                                 }
                                 break;
                             }
-                            // Embed page signals it cannot reach the URL (e.g. localhost) and asks
-                            // the extension to attempt a direct Puppeteer capture instead.
                             case 'screenshot_fallback': {
                                 const fallbackUrl = msg.url || currentUrl;
-                                await captureViaApi(auth, fallbackUrl, currentDevice);
+                                await captureViaApi(auth, fallbackUrl, session.device.id, session.device.size);
                                 break;
                             }
-                            // Embed page URL changed (e.g. user navigated inside the sim)
                             case 'url_changed': {
                                 if (msg.url) currentUrl = msg.url;
+                                break;
+                            }
+                            case 'close_device': {
+                                if (msg.sessionId) {
+                                    activeSessions = activeSessions.filter(s => s.sessionId !== msg.sessionId);
+                                    await axios.delete(`${auth.apiUrl}/api/cli/session/${msg.sessionId}`, {
+                                        headers: { 'Authorization': `Bearer ${auth.token}` }
+                                    }).catch(() => {});
+                                    
+                                    if (activeSessions.length === 0) {
+                                        currentPanel?.dispose();
+                                    }
+                                }
+                                break;
+                            }
+                            case 'add_device': {
+                                await vscode.commands.executeCommand('emuluxe.start');
+                                break;
+                            }
+                            case 'update_setting': {
+                                if (msg.key) {
+                                    context.globalState.update(`emuluxe.${msg.key}`, msg.value);
+                                }
                                 break;
                             }
                         }
                     }, null, context.subscriptions);
 
                     currentPanel.onDidDispose(() => {
+                        activeSessions.forEach(s => {
+                            axios.delete(`${auth.apiUrl}/api/cli/session/${s.sessionId}`, {
+                                headers: { 'Authorization': `Bearer ${auth.token}` }
+                            }).catch(() => { });
+                        });
                         currentPanel = undefined;
-                        axios.delete(`${auth.apiUrl}/api/cli/session/${sessionId}`, {
-                            headers: { 'Authorization': `Bearer ${auth.token}` }
-                        }).catch(() => { });
+                        activeSessions = [];
                     }, null, context.subscriptions);
                 }
             } catch (err: any) {
@@ -266,6 +299,7 @@ export function activate(context: vscode.ExtensionContext) {
     interface EmxDevice extends vscode.QuickPickItem {
         id: string;
         locked: boolean;
+        size?: { w: number, h: number };
     }
 
     const getDevices = async (auth: { token: string, apiUrl: string }): Promise<EmxDevice[]> => {
@@ -280,7 +314,8 @@ export function activate(context: vscode.ExtensionContext) {
                 description: d.os || d.brand,
                 id: d.id,
                 detail: d.isLocked ? `★ Requires ${d.planRequired} Plan` : undefined,
-                locked: d.isLocked
+                locked: d.isLocked,
+                size: d.size
             }));
         } catch (err: any) {
             vscode.window.showErrorMessage(`Emuluxe: Failed to fetch devices. ${err.message}`);
@@ -320,7 +355,7 @@ export function activate(context: vscode.ExtensionContext) {
         });
         if (!url) return;
 
-        await startSession(selectedDevice.id, url);
+        await startSession(selectedDevice, url);
     });
 
     let deviceCommand = vscode.commands.registerCommand('emuluxe.device', async () => {
@@ -349,7 +384,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (currentPanel) {
-            await startSession(selectedDevice.id, currentUrl);
+            await startSession(selectedDevice, currentUrl);
         } else {
             vscode.window.showInformationMessage('No active Emuluxe simulation. Run "Emuluxe: Start Simulation" first.');
         }
@@ -385,8 +420,10 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(startCommand, stopCommand, loginCommand, deviceCommand, rotateCommand, screenshotCommand, inspectCommand);
 }
 
-function getWebviewContent(embedUrl: string, apiUrl: string) {
-    const iframeUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'source=vscode&v=' + Date.now();
+function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}) {
+    const sessionsJson = JSON.stringify(sessions);
+    const settingsJson = JSON.stringify(settings);
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -405,156 +442,270 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
 
         /* ── Top toolbar ── */
         #toolbar {
-            display: flex; align-items: center; gap: 8px;
-            padding: 6px 10px;
-            background: #141414;
-            border-bottom: 1px solid rgba(255,255,255,0.07);
-            flex-shrink: 0;
-            z-index: 100;
+            height: 48px; background: #1a1a1a; display: flex; align-items: center;
+            padding: 0 12px; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);
+            z-index: 100; flex-shrink: 0; flex-wrap: nowrap; overflow: hidden;
         }
+        .tb-group { display: flex; align-items: center; gap: 4px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 4px; }
         .tb-btn {
-            background: none; border: none; cursor: pointer;
-            color: rgba(255,255,255,0.5); padding: 5px; border-radius: 6px;
-            display: flex; align-items: center; transition: background 0.15s, color 0.15s;
+            background: transparent; border: none; color: #ccc;
+            width: 30px; height: 30px; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s;
         }
         .tb-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
-        .tb-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
-        /* Screenshot button active state */
-        #btn-screenshot.capturing { color: #0A84FF; animation: camPulse 0.8s infinite alternate; }
-        @keyframes camPulse { from { opacity: 0.6; } to { opacity: 1; } }
-
-        #url-bar {
-            flex: 1; display: flex; align-items: center;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 8px; padding: 4px 10px; gap: 6px;
-        }
+        .tb-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        
         #url-input {
-            flex: 1; background: none; border: none; outline: none;
-            color: rgba(255,255,255,0.9); font-size: 12px; font-family: inherit;
+            flex: 1; min-width: 200px; max-width: 600px;
+            height: 28px; background: #222; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; color: #fff; padding: 0 12px; font-size: 12px;
+            outline: none; transition: border-color 0.2s;
         }
-        .url-lock svg { width: 11px; height: 11px; stroke: rgba(255,255,255,0.3); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        #loading-bar {
-            height: 2px; background: transparent; flex-shrink: 0;
-        }
-        #loading-bar.active {
-            background: linear-gradient(90deg, #0A84FF, #00C2FF);
-            animation: loadpulse 1.2s infinite alternate ease-in-out;
-        }
-        @keyframes loadpulse { 0% { opacity: 0.5; } 100% { opacity: 1; } }
+        #url-input:focus { border-color: #0A84FF; background: #262626; }
 
-        /* ── Simulation viewport ── */
-        #sim-wrap {
-            flex: 1; position: relative; overflow: hidden;
-        }
-        #sim-frame {
-            position: absolute; inset: 0; width: 100%; height: 100%;
-            border: none; background: #0d0d0d;
+        /* ── Main display ── */
+        main { display: flex; flex: 1; overflow: hidden; position: relative; }
+        #sim-container {
+            display: flex; flex-wrap: wrap; gap: 40px; justify-content: center; align-items: flex-start;
+            padding: 40px; flex: 1; overflow: auto; background: #000;
         }
 
-        /* ── Initial loader ── */
-        #loader {
-            position: absolute; inset: 0; z-index: 50;
-            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
-            background: #0d0d0d;
-            animation: fadeout 0.4s 1.5s forwards;
+        .device-wrapper {
+            position: relative; transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
         }
-        @keyframes fadeout { to { opacity: 0; pointer-events: none; } }
-        .brand-logo { width: 56px; height: 56px; }
-        .brand-text {
-            color: rgba(255,255,255,0.5); font-size: 10px;
-            text-transform: uppercase; letter-spacing: 4px; font-weight: 700;
-            animation: pulse 2s infinite ease-in-out;
+        .device-wrapper .close-btn {
+            position: absolute; top: -15px; right: -15px; width: 30px; height: 30px;
+            background: #FF3B30; color: #fff; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; cursor: pointer;
+            z-index: 100; opacity: 0; transform: scale(0.8); transition: all 0.2s;
+            border: 2px solid #000; font-size: 18px; line-height: 1;
         }
-        @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+        .device-wrapper:hover .close-btn { opacity: 1; transform: scale(1); }
+        .device-wrapper iframe {
+            border: none; background: #000; display: block;
+            border-radius: 40px; box-shadow: 0 40px 100px rgba(0,0,0,0.8);
+        }
+
+        /* ── Progress bar ── */
+        .loading-bar {
+            position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+            pointer-events: none; z-index: 1000;
+        }
+        .loading-bar::after {
+            content: ''; position: absolute; top: 0; left: 0; height: 100%; width: 0;
+            background: linear-gradient(90deg, #0A84FF, #00C7BE);
+            transition: width 0.3s ease;
+        }
+        .loading-bar.active::after { transition: width 0.3s ease; width: 90%; }
+
+        /* ── Settings Panel ── */
+        #settings-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(2px); z-index: 200;
+            display: none;
+        }
+        #settings-overlay.visible { display: block; }
+        
+        #settings-panel {
+            position: absolute; top: 0; right: -280px; width: 280px; height: 100%;
+            background: #141414; border-left: 1px solid rgba(255,255,255,0.1);
+            z-index: 210; transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 20px; color: #fff;
+            display: flex; flex-direction: column; gap: 20px;
+        }
+        #settings-panel.visible { right: 0; }
+        
+        .settings-header { font-size: 14px; font-weight: 600; color: #0A84FF; text-transform: uppercase; letter-spacing: 1px; }
+        .settings-section { display: flex; flex-direction: column; gap: 12px; }
+        .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+        .settings-row label { color: rgba(255,255,255,0.7); }
+        
+        select, input[type="text"] {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px; color: #fff; padding: 4px 8px; font-size: 11px; outline: none;
+        }
+        select:focus { border-color: #0A84FF; }
+        
+        /* Toggle Switch */
+        .switch { position: relative; display: inline-block; width: 32px; height: 18px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; inset: 0; background-color: rgba(255,255,255,0.1);
+            transition: .3s; border-radius: 18px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px;
+            background-color: white; transition: .3s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #0A84FF; }
+        input:checked + .slider:before { transform: translateX(14px); }
     </style>
 </head>
 <body>
-    <!-- Top browser toolbar -->
     <div id="toolbar">
-        <button class="tb-btn" id="btn-back" title="Back (Alt+←)">
-            <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="tb-btn" id="btn-fwd" title="Forward (Alt+→)">
-            <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-        <button class="tb-btn" id="btn-refresh" title="Refresh">
-            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        </button>
-        <div id="url-bar">
-            <span class="url-lock"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
-            <input id="url-input" type="text" spellcheck="false" autocomplete="off" placeholder="https://..." />
+        <div class="tb-group">
+            <button class="tb-btn" id="btn-back" title="Back">
+                <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <button class="tb-btn" id="btn-fwd" title="Forward">
+                <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <button class="tb-btn" id="btn-refresh" title="Refresh">
+                <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
         </div>
-        <button class="tb-btn" id="btn-rotate" title="Rotate (Alt+R)">
-            <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-        </button>
-        <button class="tb-btn" id="btn-screenshot" title="Screenshot">
-            <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        </button>
+        
+        <input type="text" id="url-input" placeholder="Enter site URL..." spellcheck="false">
+        
+        <div class="tb-group" style="border-right:none; padding:0; margin-left:auto;">
+            <button class="tb-btn" id="btn-add" title="Add More Devices" style="color: #0A84FF;">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+            </button>
+            <button class="tb-btn" id="btn-rotate" title="Rotate (Alt+R)">
+                <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            </button>
+            <button class="tb-btn" id="btn-ai" title="AI Analyzer">
+                <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </button>
+            <button class="tb-btn" id="btn-screenshot" title="Screenshot">
+                <svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            <button class="tb-btn" id="btn-settings" title="Simulation Settings">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+        </div>
     </div>
 
     <!-- Loading progress bar -->
-    <div id="loading-bar" class="active"></div>
+    <div class="loading-bar" id="loading-bar"></div>
 
-    <!-- Simulation frame -->
-    <div id="sim-wrap">
-        <iframe
-            id="sim-frame"
-            src="${iframeUrl}"
-            allow="geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture"
-            name="emx-ide-shell"
-        ></iframe>
+    <main>
+        <div id="sim-container"></div>
+    </main>
 
-        <!-- Initial loader overlay -->
-        <div id="loader">
-            <svg width="100%" height="100%" viewBox="0 0 68 68" fill="none" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;transform:scale(1.3);transform-origin:center center" class="brand-logo">
-                <defs>
-                    <linearGradient id="emxAccent_R2mtdb" x1="0" y1="0" x2="68" y2="68" gradientUnits="userSpaceOnUse">
-                        <stop offset="0%" stop-color="#0A84FF"></stop>
-                        <stop offset="100%" stop-color="#00C2FF"></stop>
-                    </linearGradient>
-                    <filter id="emxGlow_R2mtdb" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="1.8" result="b"></feGaussianBlur>
-                        <feComposite in="SourceGraphic" in2="b" operator="over"></feComposite>
-                    </filter>
-                </defs>
-                <g class="origin-center" transform="rotate(0, 34, 34) translate(0, 0)">
-                    <line x1="18" y1="34" x2="28" y2="34" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.5" stroke-linecap="butt" class="transition-all duration-500 group-hover:translate-x-1"></line>
-                    <line x1="50" y1="34" x2="40" y2="34" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.5" stroke-linecap="butt" class="transition-all duration-500 group-hover:-translate-x-1"></line>
-                    <g filter="url(#emxGlow_R2mtdb)">
-                        <path d="M 23,12 L 45,12 A 5,5 0 0 1 50,17 L 50,51 A 5,5 0 0 1 45,56 L 23,56 A 5,5 0 0 1 18,51 L 18,17 A 5,5 0 0 1 23,12 Z" fill="none" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.1" stroke-linejoin="round"></path>
-                        <line x1="34" y1="23" x2="34" y2="52" stroke="url(#emxAccent_R2mtdb)" stroke-width="2.1" stroke-linecap="butt"></line>
-                        <rect x="26.5" y="16" width="15" height="3" rx="1.5" fill="#0A84FF"></rect>
-                    </g>
-                </g>
-            </svg>
-            <div class="brand-text">Initialising Engine</div>
+    <!-- Settings Overlay & Panel -->
+    <div id="settings-overlay"></div>
+    <div id="settings-panel">
+        <div class="settings-header">Simulation Settings</div>
+        
+        <div class="settings-section">
+            <div class="settings-row">
+                <label for="network">Network Profile</label>
+                <select id="network">
+                    <option value="no-throttle">No Throttle</option>
+                    <option value="5g">5G (Ultra Fast)</option>
+                    <option value="4g-lte">4G LTE</option>
+                    <option value="3g-fast">3G (Fast)</option>
+                    <option value="3g-slow">3G (Slow)</option>
+                    <option value="offline">Offline</option>
+                </select>
+            </div>
+            <div class="settings-row">
+                <label for="geolocation">Location (GPS)</label>
+                <select id="geolocation">
+                    <option value="none">Actual Location</option>
+                    <option value="san-francisco">San Francisco</option>
+                    <option value="new-york">New York</option>
+                    <option value="london">London</option>
+                    <option value="tokyo">Tokyo</option>
+                </select>
+            </div>
+            <div class="settings-row">
+                <label for="ua">User Agent</label>
+                <select id="ua">
+                    <option value="ios-safari">iOS Safari</option>
+                    <option value="chrome-android">Chrome Android</option>
+                    <option value="edge-android">Edge Android</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-header">Display Overlays</div>
+            <div class="settings-row">
+                <label for="safeArea">Safe Area Debug</label>
+                <label class="switch">
+                    <input type="checkbox" id="safeArea">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-row">
+                <label for="touchCursor">Touch Cursor</label>
+                <label class="switch">
+                    <input type="checkbox" id="touchCursor">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-header">Capture Settings</div>
+            <div class="settings-row">
+                <label for="fullPage">Full Page Screenshot</label>
+                <label class="switch">
+                    <input type="checkbox" id="fullPage">
+                    <span class="slider"></span>
+                </label>
+            </div>
         </div>
     </div>
 
     <script>
-        // ── VS Code API bridge (must be acquired exactly once per webview) ──
         const vscode = acquireVsCodeApi();
+        const INITIAL_SETTINGS = ${settingsJson};
+        const INITIAL_SESSIONS = ${sessionsJson};
 
-        const frame = document.getElementById('sim-frame');
+        const simContainer = document.getElementById('sim-container');
         const urlInput = document.getElementById('url-input');
         const loadingBar = document.getElementById('loading-bar');
         const btnScreenshot = document.getElementById('btn-screenshot');
+        const btnSettings = document.getElementById('btn-settings');
+        const btnAdd = document.getElementById('btn-add');
+        const settingsPanel = document.getElementById('settings-panel');
+        const overlay = document.getElementById('settings-overlay');
 
-        // Populate URL bar from the embed URL param
-        try {
-            const embedSrc = new URL(frame.src);
-            const userUrl = embedSrc.searchParams.get('url');
-            if (userUrl) urlInput.value = decodeURIComponent(userUrl);
-        } catch(e) {}
+        function addDeviceFrame(session) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'device-wrapper';
+            wrapper.id = 'session-' + session.sessionId;
 
-        // Loading bar control
-        frame.addEventListener('load', () => {
-            loadingBar.classList.remove('active');
+            const closeBtn = document.createElement('div');
+            closeBtn.className = 'close-btn';
+            closeBtn.innerHTML = '&times;';
+            closeBtn.title = 'Close Simulation';
+            closeBtn.onclick = () => {
+                vscode.postMessage({ type: 'close_device', sessionId: session.sessionId });
+                wrapper.remove();
+            };
+
+            const frame = document.createElement('iframe');
+            frame.src = session.embedUrl + '&source=vscode';
+            frame.allow = 'geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture';
+            
+            const { w, h } = session.device.size || { w: 375, h: 812 };
+            frame.style.width = (w + 100) + 'px';
+            frame.style.height = (h + 100) + 'px';
+
+            wrapper.appendChild(closeBtn);
+            wrapper.appendChild(frame);
+            simContainer.appendChild(wrapper);
+
+            frame.addEventListener('load', () => {
+                loadingBar.classList.remove('active');
+            });
+        }
+
+        INITIAL_SESSIONS.forEach(addDeviceFrame);
+
+        Object.keys(INITIAL_SETTINGS).forEach(key => {
+            const el = document.getElementById(key);
+            if (el) {
+                if (el.type === 'checkbox') el.checked = INITIAL_SETTINGS[key];
+                else el.value = INITIAL_SETTINGS[key];
+            }
         });
 
-        // --- URL bar navigation ---
         urlInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 let newUrl = urlInput.value.trim();
@@ -562,83 +713,77 @@ function getWebviewContent(embedUrl: string, apiUrl: string) {
                     if (newUrl.startsWith('localhost') || newUrl.startsWith('127.0.0.1')) newUrl = 'http://' + newUrl;
                     else newUrl = 'https://' + newUrl;
                 }
-                // Track current URL in extension host
                 vscode.postMessage({ type: 'url_changed', url: newUrl });
-                // Post to embed page so it re-routes through the proxy
-                frame.contentWindow && frame.contentWindow.postMessage({
-                    type: 'EMX_IDE_NAVIGATE',
-                    url: newUrl
-                }, '*');
+                broadcast({ type: 'EMX_IDE_NAVIGATE', url: newUrl });
                 loadingBar.classList.add('active');
             }
         });
 
-        // --- Toolbar buttons ---
-        document.getElementById('btn-back').addEventListener('click', () => {
-            frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'back' }, '*');
-        });
-        document.getElementById('btn-fwd').addEventListener('click', () => {
-            frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'forward' }, '*');
-        });
-        document.getElementById('btn-refresh').addEventListener('click', () => {
-            loadingBar.classList.add('active');
-            frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'refresh' }, '*');
-        });
-        document.getElementById('btn-rotate').addEventListener('click', () => {
-            frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'rotate' }, '*');
+        btnAdd.addEventListener('click', () => {
+            vscode.postMessage({ type: 'add_device' });
         });
 
-        // ── Screenshot button ────────────────────────────────────────────────
-        // We forward to the embed page AND show a "capturing" state.
-        // The embed page will respond with EMX_SCREENSHOT_DONE which we relay
-        // back to the extension host for file saving.
+        function broadcast(msg) {
+            document.querySelectorAll('iframe').forEach(f => {
+                f.contentWindow && f.contentWindow.postMessage(msg, '*');
+            });
+        }
+
+        document.getElementById('btn-back').addEventListener('click', () => broadcast({ type: 'EMX_IDE_CMD', action: 'back' }));
+        document.getElementById('btn-fwd').addEventListener('click', () => broadcast({ type: 'EMX_IDE_CMD', action: 'forward' }));
+        document.getElementById('btn-refresh').addEventListener('click', () => {
+            loadingBar.classList.add('active');
+            broadcast({ type: 'EMX_IDE_CMD', action: 'refresh' });
+        });
+        document.getElementById('btn-rotate').addEventListener('click', () => broadcast({ type: 'EMX_IDE_CMD', action: 'rotate' }));
+        document.getElementById('btn-ai').addEventListener('click', () => broadcast({ type: 'EMX_IDE_CMD', action: 'trigger_ai' }));
+
+        btnSettings.addEventListener('click', () => {
+            settingsPanel.classList.toggle('visible');
+            overlay.classList.toggle('visible');
+        });
+        overlay.addEventListener('click', () => {
+            settingsPanel.classList.remove('visible');
+            overlay.classList.remove('visible');
+        });
+
+        document.querySelectorAll('.settings-row select, .settings-row input').forEach(el => {
+            el.addEventListener('change', () => {
+                const key = el.id;
+                const value = el.type === 'checkbox' ? el.checked : el.value;
+                vscode.postMessage({ type: 'update_setting', key, value });
+                
+                if (key === 'network') broadcast({ type: 'EMX_IDE_CMD', action: 'update_network', profile: value });
+                else if (key === 'geolocation') broadcast({ type: 'EMX_IDE_CMD', action: 'update_geolocation', profile: value });
+                else if (key === 'ua') broadcast({ type: 'EMX_IDE_CMD', action: 'update_ua', profile: value });
+                else if (key === 'safeArea') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_safe_area', enabled: value });
+                else if (key === 'touchCursor') broadcast({ type: 'EMX_IDE_CMD', action: 'toggle_touch_cursor', enabled: value });
+            });
+        });
+
         btnScreenshot.addEventListener('click', () => {
             btnScreenshot.classList.add('capturing');
-            frame.contentWindow && frame.contentWindow.postMessage({ type: 'EMX_IDE_CMD', action: 'screenshot' }, '*');
-            // Fallback: clear capturing state after 30s in case embed never responds
+            broadcast({ type: 'EMX_IDE_CMD', action: 'screenshot', full: document.getElementById('fullPage').checked });
             setTimeout(() => btnScreenshot.classList.remove('capturing'), 30000);
         });
 
-        // ── Message relay ────────────────────────────────────────────────────
         window.addEventListener('message', event => {
             const data = event.data;
             if (!data || !data.type) return;
 
-            // ── Screenshot result from embed page → relay to extension host ──
-            // The embed page posts EMX_SCREENSHOT_DONE with the composited dataUrl.
-            if (data.type === 'EMX_SCREENSHOT_DONE') {
+            if (data.type === 'EMX_IDE_ADD_DEVICE') addDeviceFrame(data.session);
+            else if (data.type === 'EMX_SCREENSHOT_DONE') {
                 btnScreenshot.classList.remove('capturing');
-                vscode.postMessage({
-                    type: 'screenshot_result',
-                    dataUrl: data.dataUrl,
-                    filename: data.filename || ('Emuluxe_Screenshot_' + Date.now() + '.png')
-                });
-                return;
+                vscode.postMessage({ type: 'screenshot_result', dataUrl: data.dataUrl, filename: data.filename });
             }
-
-            // ── Embed page cannot capture the site (e.g. localhost) ──
-            // Ask the extension host to attempt a direct API screenshot instead.
-            if (data.type === 'EMX_SCREENSHOT_FALLBACK') {
+            else if (data.type === 'EMX_SCREENSHOT_FALLBACK') {
                 btnScreenshot.classList.remove('capturing');
-                vscode.postMessage({
-                    type: 'screenshot_fallback',
-                    url: data.url || urlInput.value
-                });
-                return;
+                vscode.postMessage({ type: 'screenshot_fallback', url: data.url || urlInput.value });
             }
-
-            // ── Relay extension → embed for other IDE commands ──
-            if (data.type && data.type.startsWith('EMX_IDE')) {
-                frame.contentWindow && frame.contentWindow.postMessage(data, '*');
-            }
-
-            // ── Update URL bar when the sim navigates ──
-            if (data.type === 'EMULUXE_IFRAME_NAVIGATED' && data.payload?.url) {
-                try {
-                    const nav = new URL(data.payload.url);
-                    urlInput.value = nav.href;
-                    vscode.postMessage({ type: 'url_changed', url: nav.href });
-                } catch(e) {}
+            else if (data.type === 'EMULUXE_IFRAME_NAVIGATED' && data.payload?.url) {
+                urlInput.value = data.payload.url;
+                broadcast({ type: 'EMX_IDE_NAVIGATE', url: data.payload.url });
+                vscode.postMessage({ type: 'url_changed', url: data.payload.url });
             }
         });
     </script>

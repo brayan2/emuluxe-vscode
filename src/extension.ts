@@ -888,7 +888,7 @@ function getWebviewContent(sessions: any[], apiUrl: string, settings: any = {}, 
 
             const frame = document.createElement('iframe');
             frame.src = session.embedUrl + '&source=vscode';
-            frame.allow = 'geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture';
+            frame.allow = 'publickey-credentials-get; publickey-credentials-create; geolocation; microphone; camera; midi; encrypted-media; autoplay; clipboard-read; clipboard-write; display-capture';
             
             frame.style.width = '100%';
             frame.style.height = '100%';
